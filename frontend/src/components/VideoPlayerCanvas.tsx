@@ -66,6 +66,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
   const [duration, setDuration] = useState(10);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [hasEnded, setHasEnded] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
   
   // Layer Toggles
   const [showZones, setShowZones] = useState(true);
@@ -98,13 +99,16 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
   useEffect(() => {
     setCurrentTime(0);
     setHasEnded(false);
+    setMediaError(false);
     setIsPlaying(!isAnalyzing);
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
       if (isAnalyzing) {
         videoRef.current.pause();
       } else {
-        videoRef.current.play().catch(() => {});
+        videoRef.current.play().catch(() => {
+          setMediaError(true);
+        });
       }
     }
   }, [videoUrl]);
@@ -419,8 +423,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     // If live mode webcam active
     if (isLiveMode && liveVideoRef.current && liveVideoRef.current.readyState >= 2) {
       ctx.drawImage(liveVideoRef.current, 0, 0, width, height);
-    } else if (!isRealMedia) {
-      // Draw synthetic background ONLY if no real video / GIF file is loaded
+    } else if (!isRealMedia || mediaError) {
+      // Draw 60 FPS synthetic tactical scene when no native video or when media failed
       drawScenarioScene(ctx, width, height, scenId, currentTime, thermalMode);
     }
 
@@ -630,17 +634,16 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       const dt = (timeNow - lastT) / 1000;
       lastT = timeNow;
 
-      if (!isLiveMode) {
-        if (videoRef.current && !videoRef.current.paused && videoRef.current.duration) {
+      if (!isLiveMode && isPlaying) {
+        if (videoRef.current && !videoRef.current.paused && videoRef.current.duration && !mediaError) {
           setCurrentTime(videoRef.current.currentTime);
           setDuration(videoRef.current.duration);
-        } else if (isGif && isPlaying) {
-          const maxD = duration || 10;
+        } else {
+          const maxD = duration || 12;
           setCurrentTime(prev => {
-            const next = prev + dt * playbackRate;
+            let next = prev + dt * playbackRate;
             if (next >= maxD) {
-              handleVideoEnded();
-              return maxD;
+              next = 0; // Loop seamlessly
             }
             return next;
           });
@@ -792,25 +795,27 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       {/* Main Viewport: Media Element (GIF or Video) + Canvas Overlay */}
       <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden cursor-crosshair group">
         {!isLiveMode ? (
-          isGif ? (
+          isGif && !mediaError ? (
             <img
               ref={imgRef}
               src={videoUrl}
               alt="CCTV Surveillance Stream"
+              onError={() => setMediaError(true)}
               className={`w-full h-full object-contain transition-all ${thermalMode ? 'brightness-125 contrast-150 hue-rotate-180' : ''}`}
             />
-          ) : (
+          ) : !mediaError ? (
             <video
               ref={videoRef}
               src={videoUrl}
               playsInline
               muted
               autoPlay
+              onError={() => setMediaError(true)}
               onEnded={handleVideoEnded}
               onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
               className={`w-full h-full object-contain transition-all ${thermalMode ? 'brightness-125 contrast-150 hue-rotate-180' : ''}`}
             />
-          )
+          ) : null
         ) : webcamError ? (
           <div className="flex flex-col items-center justify-center p-6 text-center text-red-300 gap-2 font-mono">
             <VideoOff className="w-10 h-10 text-red-500" />

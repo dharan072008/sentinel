@@ -51,6 +51,36 @@ const FALLBACK_ZONES: VirtualZone[] = [
   }
 ];
 
+const FALLBACK_CCTV_ZONES: VirtualZone[] = [
+  {
+    zone_id: 'z_cctv_entry',
+    name: 'Entry / Exit Passage',
+    polygon: [[350, 100], [650, 100], [650, 480], [350, 480]],
+    zone_type: 'RESTRICTED',
+    sensitivity_level: 'HIGH',
+    color: '#EF4444',
+    description: 'Primary doorway entry and exit point.'
+  },
+  {
+    zone_id: 'z_cctv_counter',
+    name: 'Store Counter Sector',
+    polygon: [[50, 120], [340, 120], [340, 450], [50, 450]],
+    zone_type: 'VILLAGE',
+    sensitivity_level: 'MEDIUM',
+    color: '#3B82F6',
+    description: 'Cashier and customer service area.'
+  },
+  {
+    zone_id: 'z_cctv_aisle',
+    name: 'Perimeter Aisle',
+    polygon: [[660, 120], [940, 120], [940, 450], [660, 450]],
+    zone_type: 'BUFFER',
+    sensitivity_level: 'MEDIUM',
+    color: '#10B981',
+    description: 'High visibility transit aisle.'
+  }
+];
+
 const FALLBACK_SCENARIOS: PresetScenario[] = [
   {
     id: 'border_incursion',
@@ -435,7 +465,7 @@ export async function processLiveFrame(payload: LiveFramePayload) {
           speed_kmh: 3.8,
           heading_deg: 90,
           dwell_seconds: 8.5,
-          current_zone: 'Civilian Village Sector',
+          current_zone: 'Entry / Exit Passage',
           trajectory: [[180, 230], [220, 230]],
           hits: 10,
           age: 10
@@ -456,211 +486,223 @@ export async function resetLiveSession() {
 }
 
 // -------------------------------------------------------------------------
-// Helper Generators for Client-Side Static Demonstration (e.g. Vercel)
+// Helper Generators for Client-Side Demonstration
 // -------------------------------------------------------------------------
 
 function generateFallbackAnalysisResponse(
   videoSource: string,
   context: { region: string; season: string; time_of_day: string; habitat: string }
 ): VideoAnalysisResponse {
-  const tracks: TrackData[] = [
-    {
-      track_id: 'P01',
-      class_name: 'person',
-      confidence: 0.94,
-      bbox: [100, 150, 160, 320],
-      center: [130, 235],
-      dimensions: [60, 170],
-      speed_px_s: 45,
-      speed_kmh: 4.2,
-      heading_deg: 45,
-      dwell_seconds: 24.5,
-      current_zone: 'Civilian Village Sector',
-      trajectory: [[100, 235], [110, 235], [120, 235], [130, 235]],
-      hits: 30,
-      age: 30
-    },
-    {
-      track_id: 'P02',
-      class_name: 'person',
-      confidence: 0.91,
-      bbox: [220, 160, 280, 330],
-      center: [250, 245],
-      dimensions: [60, 170],
-      speed_px_s: 38,
-      speed_kmh: 3.8,
-      heading_deg: 90,
-      dwell_seconds: 20.0,
-      current_zone: 'Road Transit Corridor',
-      trajectory: [[220, 245], [230, 245], [240, 245], [250, 245]],
-      hits: 25,
-      age: 25
-    },
-    {
-      track_id: 'V03',
-      class_name: 'vehicle',
-      confidence: 0.96,
-      bbox: [350, 380, 520, 480],
-      center: [435, 430],
-      dimensions: [170, 100],
-      speed_px_s: 120,
-      speed_kmh: 28.5,
-      heading_deg: 180,
-      dwell_seconds: 12.0,
-      current_zone: 'Road Transit Corridor',
-      trajectory: [[350, 430], [390, 430], [435, 430]],
-      hits: 15,
-      age: 15
-    },
-    {
-      track_id: 'P07',
-      class_name: 'person',
-      confidence: 0.95,
-      bbox: [760, 180, 830, 360],
-      center: [795, 270],
-      dimensions: [70, 180],
-      speed_px_s: 12,
-      speed_kmh: 1.1,
-      heading_deg: 315,
-      dwell_seconds: 88.0,
-      current_zone: 'Restricted Border Fence Line',
-      trajectory: [[520, 390], [610, 320], [710, 280], [795, 270]],
-      hits: 90,
-      age: 90
-    },
-    {
-      track_id: 'B04',
-      class_name: 'bird',
-      confidence: 0.87,
-      bbox: [600, 80, 660, 140],
-      center: [630, 110],
-      dimensions: [60, 60],
-      speed_px_s: 150,
-      speed_kmh: 34.0,
-      heading_deg: 90,
-      dwell_seconds: 15.0,
-      current_zone: 'Agricultural Buffer Zone',
-      trajectory: [[400, 110], [500, 110], [630, 110]],
-      hits: 20,
-      age: 20
-    }
-  ];
+  const isCctv = videoSource.includes('cctv') || videoSource.includes('.gif') || videoSource.includes('Burglary') || videoSource.includes('Vandalism') || videoSource.includes('fighting') || videoSource.includes('assault') || videoSource.includes('abuse') || videoSource.includes('stealing') || videoSource.includes('road-accident') || videoSource.includes('arrest');
 
-  const spatial_events: SpatialEvent[] = [
-    {
-      event_type: 'RESTRICTED_INCURSION',
-      track_id: 'P07',
-      class_name: 'person',
-      zone_name: 'Restricted Border Fence Line',
-      timestamp: 12.4,
-      position: [795, 270],
-      severity: 'CRITICAL',
-      description: 'Person P07 breached Restricted Border Fence Line perimeter.'
-    },
-    {
-      event_type: 'ZONE_TRANSITION',
-      track_id: 'P07',
-      class_name: 'person',
-      from_zone: 'Agricultural Buffer Zone',
-      to_zone: 'Restricted Border Fence Line',
-      timestamp: 14.2,
-      position: [795, 270],
-      severity: 'HIGH',
-      description: 'Transition from Agricultural Buffer Zone to Restricted Border Fence Line.'
-    }
-  ];
+  let tracks: TrackData[];
+  let spatial_events: SpatialEvent[];
 
-  const odd_one_out: OddOneOutResult = {
-    total_entities: 5,
-    normal_count: 3,
-    moderate_count: 1,
-    significant_outlier_count: 1,
-    ranked_entities: [
-      {
-        track_id: 'P07',
-        zone: 'Restricted Border Fence Line',
-        score: 0.88,
-        z_score: 3.42,
-        classification: 'SIGNIFICANT_OUTLIER',
-        reasons: ['Restricted Fence Dwell (88.0s)', 'High route tortuosity', 'Unattended baggage sequence']
-      },
-      {
-        track_id: 'B04',
-        zone: 'Agricultural Buffer Zone',
-        score: 0.72,
-        z_score: 2.15,
-        classification: 'MODERATE_DEVIATION',
-        reasons: ['Thermal 68.4°C / 3400 RPM radar contradiction']
-      },
-      {
-        track_id: 'V03',
-        zone: 'Road Transit Corridor',
-        score: 0.18,
-        z_score: 0.45,
-        classification: 'BASELINE_CONFORMANT',
-        reasons: ['Standard road transit velocity']
-      },
+  if (isCctv) {
+    // Tailored indoor/street CCTV surveillance tracks matching actual footage subjects
+    tracks = [
       {
         track_id: 'P01',
-        zone: 'Civilian Village Sector',
-        score: 0.08,
-        z_score: 0.20,
-        classification: 'BASELINE_CONFORMANT',
-        reasons: ['Nominal pedestrian movement']
+        class_name: 'person',
+        confidence: 0.94,
+        bbox: [220, 180, 320, 440],
+        center: [270, 310],
+        dimensions: [100, 260],
+        speed_px_s: 32,
+        speed_kmh: 3.4,
+        heading_deg: 90,
+        dwell_seconds: 18.5,
+        current_zone: 'Store Counter Sector',
+        trajectory: [[220, 310], [240, 310], [270, 310]],
+        hits: 30,
+        age: 30
       },
       {
         track_id: 'P02',
-        zone: 'Road Transit Corridor',
-        score: 0.05,
-        z_score: 0.12,
-        classification: 'BASELINE_CONFORMANT',
-        reasons: ['Baseline road passage']
+        class_name: 'person',
+        confidence: 0.92,
+        bbox: [380, 160, 480, 450],
+        center: [430, 305],
+        dimensions: [100, 290],
+        speed_px_s: 42,
+        speed_kmh: 4.1,
+        heading_deg: 180,
+        dwell_seconds: 12.0,
+        current_zone: 'Entry / Exit Passage',
+        trajectory: [[390, 305], [410, 305], [430, 305]],
+        hits: 20,
+        age: 20
+      },
+      {
+        track_id: 'P07',
+        class_name: 'person',
+        confidence: 0.96,
+        bbox: [520, 150, 630, 460],
+        center: [575, 305],
+        dimensions: [110, 310],
+        speed_px_s: 18,
+        speed_kmh: 1.8,
+        heading_deg: 315,
+        dwell_seconds: 45.0,
+        current_zone: 'Entry / Exit Passage',
+        trajectory: [[450, 320], [510, 310], [575, 305]],
+        hits: 80,
+        age: 80
       }
-    ],
+    ];
+
+    spatial_events = [
+      {
+        event_type: 'RESTRICTED_INCURSION',
+        track_id: 'P07',
+        class_name: 'person',
+        zone_name: 'Entry / Exit Passage',
+        timestamp: 4.2,
+        position: [575, 305],
+        severity: 'CRITICAL',
+        description: 'Subject P07 flagged for anomalous altercation sequence in Entry / Exit Passage.'
+      }
+    ];
+  } else {
+    // Border outdoor surveillance scenario tracks
+    tracks = [
+      {
+        track_id: 'P01',
+        class_name: 'person',
+        confidence: 0.94,
+        bbox: [100, 150, 160, 320],
+        center: [130, 235],
+        dimensions: [60, 170],
+        speed_px_s: 45,
+        speed_kmh: 4.2,
+        heading_deg: 45,
+        dwell_seconds: 24.5,
+        current_zone: 'Civilian Village Sector',
+        trajectory: [[100, 235], [110, 235], [120, 235], [130, 235]],
+        hits: 30,
+        age: 30
+      },
+      {
+        track_id: 'P02',
+        class_name: 'person',
+        confidence: 0.91,
+        bbox: [220, 160, 280, 330],
+        center: [250, 245],
+        dimensions: [60, 170],
+        speed_px_s: 38,
+        speed_kmh: 3.8,
+        heading_deg: 90,
+        dwell_seconds: 20.0,
+        current_zone: 'Road Transit Corridor',
+        trajectory: [[220, 245], [230, 245], [240, 245], [250, 245]],
+        hits: 25,
+        age: 25
+      },
+      {
+        track_id: 'V03',
+        class_name: 'vehicle',
+        confidence: 0.96,
+        bbox: [350, 380, 520, 480],
+        center: [435, 430],
+        dimensions: [170, 100],
+        speed_px_s: 120,
+        speed_kmh: 28.5,
+        heading_deg: 180,
+        dwell_seconds: 12.0,
+        current_zone: 'Road Transit Corridor',
+        trajectory: [[350, 430], [390, 430], [435, 430]],
+        hits: 15,
+        age: 15
+      },
+      {
+        track_id: 'P07',
+        class_name: 'person',
+        confidence: 0.95,
+        bbox: [760, 180, 830, 360],
+        center: [795, 270],
+        dimensions: [70, 180],
+        speed_px_s: 12,
+        speed_kmh: 1.1,
+        heading_deg: 315,
+        dwell_seconds: 88.0,
+        current_zone: 'Restricted Border Fence Line',
+        trajectory: [[520, 390], [610, 320], [710, 280], [795, 270]],
+        hits: 90,
+        age: 90
+      },
+      {
+        track_id: 'B04',
+        class_name: 'bird',
+        confidence: 0.87,
+        bbox: [600, 80, 660, 140],
+        center: [630, 110],
+        dimensions: [60, 60],
+        speed_px_s: 150,
+        speed_kmh: 34.0,
+        heading_deg: 90,
+        dwell_seconds: 15.0,
+        current_zone: 'Agricultural Buffer Zone',
+        trajectory: [[400, 110], [500, 110], [630, 110]],
+        hits: 20,
+        age: 20
+      }
+    ];
+
+    spatial_events = [
+      {
+        event_type: 'RESTRICTED_INCURSION',
+        track_id: 'P07',
+        class_name: 'person',
+        zone_name: 'Restricted Border Fence Line',
+        timestamp: 12.4,
+        position: [795, 270],
+        severity: 'CRITICAL',
+        description: 'Person P07 breached Restricted Border Fence Line perimeter.'
+      }
+    ];
+  }
+
+  const odd_one_out: OddOneOutResult = {
+    total_entities: tracks.length,
+    normal_count: tracks.length - 2,
+    moderate_count: 1,
+    significant_outlier_count: 1,
+    ranked_entities: tracks.map((t, idx) => ({
+      track_id: t.track_id,
+      zone: t.current_zone,
+      score: t.track_id === 'P07' ? 0.88 : (t.track_id === 'B04' ? 0.72 : 0.08 + idx * 0.04),
+      z_score: t.track_id === 'P07' ? 3.42 : (t.track_id === 'B04' ? 2.15 : 0.20 + idx * 0.1),
+      classification: t.track_id === 'P07' ? 'SIGNIFICANT_OUTLIER' : (t.track_id === 'B04' ? 'MODERATE_DEVIATION' : 'BASELINE_CONFORMANT'),
+      reasons: t.track_id === 'P07' ? ['Excessive zone dwell', 'Erratic movement vector'] : ['Nominal baseline movement']
+    })),
     primary_outlier: {
       track_id: 'P07',
-      zone: 'Restricted Border Fence Line',
+      zone: isCctv ? 'Entry / Exit Passage' : 'Restricted Border Fence Line',
       score: 0.88,
       z_score: 3.42,
-      explanation: 'Person P07 exhibits a severe behavioral deviation with 88s dwell inside the Restricted Border Fence Line.',
+      explanation: 'Subject P07 exhibits a severe behavioral deviation.',
       contributing_signals: [
-        'Restricted Zone Dwell (88.0s vs normal 30.0s)',
-        'High Route Tortuosity (2.45)',
-        'Unattended Baggage Drop Sequence'
+        'Anomalous Zone Dwell',
+        'High Route Tortuosity',
+        'Sequence Anomaly Flagged'
       ]
     }
   };
 
-  const baseline_summary: BaselineComparison[] = [
-    {
-      track_id: 'P07',
-      zone: 'Restricted Border Fence Line',
-      expected_mean_speed: 4.5,
-      observed_speed: 1.1,
-      max_normal_dwell: 30.0,
-      observed_dwell: 88.0,
-      speed_deviation_score: 0.75,
-      dwell_deviation_score: 0.94,
-      route_deviation_score: 0.82,
-      composite_deviation_score: 0.88,
-      deviation_level: 'HIGH',
-      deviation_reasons: ['Restricted Border Fence Line incursion', 'Excessive dwell time (88.0s)']
-    },
-    {
-      track_id: 'P01',
-      zone: 'Civilian Village Sector',
-      expected_mean_speed: 4.5,
-      observed_speed: 4.2,
-      max_normal_dwell: 60.0,
-      observed_dwell: 24.5,
-      speed_deviation_score: 0.06,
-      dwell_deviation_score: 0.09,
-      route_deviation_score: 0.05,
-      composite_deviation_score: 0.08,
-      deviation_level: 'LOW',
-      deviation_reasons: ['Consistent with local civilian baseline']
-    }
-  ];
+  const baseline_summary: BaselineComparison[] = tracks.map((t) => ({
+    track_id: t.track_id,
+    zone: t.current_zone,
+    expected_mean_speed: 4.5,
+    observed_speed: t.speed_kmh,
+    max_normal_dwell: 30.0,
+    observed_dwell: t.dwell_seconds,
+    speed_deviation_score: t.track_id === 'P07' ? 0.75 : 0.08,
+    dwell_deviation_score: t.track_id === 'P07' ? 0.94 : 0.10,
+    route_deviation_score: t.track_id === 'P07' ? 0.82 : 0.05,
+    composite_deviation_score: t.track_id === 'P07' ? 0.88 : 0.08,
+    deviation_level: t.track_id === 'P07' ? 'HIGH' : 'LOW',
+    deviation_reasons: t.track_id === 'P07' ? ['Zone incursion', 'Excessive dwell'] : ['Nominal civilian baseline']
+  }));
 
   const aerial_results: Record<string, AerialTelemetry> = {
     B04: {
@@ -737,18 +779,18 @@ function generateFallbackAnalysisResponse(
     frame_records.push({
       frame_index: f,
       timestamp: roundVal(t, 2),
-      detections_count: 5,
+      detections_count: tracks.length,
       active_tracks: tracks.map((trk) => {
         let cx = trk.center[0];
         let cy = trk.center[1];
         if (trk.track_id === 'P07') {
-          cx = Math.min(820, 720 + f * 0.8);
-          cy = 270 + Math.sin(f * 0.1) * 5;
+          cx = Math.min(620, 500 + f * 0.8);
+          cy = 305 + Math.sin(f * 0.1) * 5;
         }
         return {
           ...trk,
           center: [cx, cy] as [number, number],
-          bbox: [cx - 30, cy - 80, cx + 30, cy + 80] as [number, number, number, number]
+          bbox: [cx - 40, cy - 100, cx + 40, cy + 100] as [number, number, number, number]
         };
       }),
       spatial_events: f === 40 ? [spatial_events[0]] : []
@@ -772,7 +814,7 @@ function generateFallbackAnalysisResponse(
     },
     video_url: resolvedVideoUrl,
     total_frames_processed: 360,
-    total_tracks_identified: 5,
+    total_tracks_identified: tracks.length,
     tracks,
     frame_records,
     spatial_events,
@@ -840,15 +882,15 @@ function generateFallbackDossier(trackId: string): ExplainableDossier {
       priority_score: 0.88,
       badge_label: 'CRITICAL REVIEW',
       color_hex: '#EF4444',
-      recommended_triage_action: 'Dispatch border patrol unit to Restricted Border Fence Line'
+      recommended_triage_action: 'Dispatch border patrol unit to flagged sector'
     },
     five_w: {
       what: 'Restricted Area Incursion & Unattended Baggage Drop Sequence',
-      where: 'Restricted Border Fence Line (Grid Ref 795, 270)',
-      when: 'Timestamp 00:03 ➔ 00:91 (Total observed duration 88.0s)',
+      where: 'Entry / Exit Passage (Grid Ref 575, 305)',
+      when: 'Timestamp 00:03 ➔ 00:91 (Total observed duration 45.0s)',
       why: [
-        'Subject P07 breached Restricted Border Fence Line perimeter.',
-        'Lingered for 88s (baseline maximum 30s).',
+        'Subject P07 flagged for anomalous activity sequence.',
+        'Lingered for 45s inside perimeter corridor.',
         'Executed an object-interaction drop sequence.'
       ],
       evidence: [
@@ -858,19 +900,19 @@ function generateFallbackDossier(trackId: string): ExplainableDossier {
       ]
     },
     spatial_summary: {
-      current_zone: 'Restricted Border Fence Line',
-      dwell_seconds: 88.0,
-      speed_kmh: 1.1
+      current_zone: 'Entry / Exit Passage',
+      dwell_seconds: 45.0,
+      speed_kmh: 1.8
     },
     sensor_telemetry: {
       cctv_optical: 'Person P07 Active Track',
       thermal_ir: 'Human Body Temperature Signature (36.8°C)',
-      ecological: 'Restricted Fence Line Incursion'
+      ecological: 'Perimeter Incursion'
     },
     operator_actions: [
       { id: 'act_ack', label: 'Acknowledge Alert', recommended: true },
       { id: 'act_civ', label: 'Mark Authorized Civilian', recommended: false },
-      { id: 'act_patrol', label: 'Dispatch Border Patrol', recommended: true },
+      { id: 'act_patrol', label: 'Dispatch Patrol Unit', recommended: true },
       { id: 'act_exp', label: 'Export 5W Intelligence Dossier', recommended: true }
     ]
   };

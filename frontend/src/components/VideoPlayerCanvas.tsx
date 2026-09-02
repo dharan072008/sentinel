@@ -503,8 +503,9 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
         if (bw >= 0.70 * metaW || bh >= 0.70 * metaH) return false;
         if ((bw * bh) >= 0.40 * (metaW * metaH)) return false;
 
-        // 2. Reject top text banner area (e.g. "Frame No: - 1040" text banner)
-        if (by1 < 0.15 * metaH && bw > 0.30 * metaW && bh < 0.25 * metaH) return false;
+        // 2. Reject top text banner area (e.g. "Frame No: - 458" burned-in video header text)
+        if (by1 < 0.30 * metaH && bw > 0.20 * metaW && bh < 0.25 * metaH) return false;
+        if (by1 < 0.25 * metaH && bx1 > 0.40 * metaW && (bx2 - bx1) > 0.15 * metaW) return false;
 
         // 3. Reject outer frame edge hugging lines
         if (bx1 <= 5 && bx2 >= metaW - 5) return false;

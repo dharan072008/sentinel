@@ -204,6 +204,7 @@ export interface PresetScenario {
   description: string;
   expected_threat_level: string;
   outlier_target: string;
+  is_cctv_footage?: boolean;
 }
 
 export interface FrameRecord {

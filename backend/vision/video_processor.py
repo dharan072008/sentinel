@@ -23,10 +23,17 @@ class SentinelVideoProcessor:
         if not self.cap.isOpened():
             raise ValueError(f"Could not open video file: {video_path}")
             
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 25.0
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.fps = float(fps) if fps and fps > 0 else 10.0
+        
+        frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.total_frames = frames if frames > 0 else 100
+        
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
+        if self.width <= 0: self.width = 1280
+        if self.height <= 0: self.height = 720
+        
         self.duration_seconds = self.total_frames / self.fps
 
     def get_metadata(self) -> Dict[str, Any]:
@@ -57,18 +64,24 @@ class SentinelVideoProcessor:
 
     def frame_generator(self, stride: int = 1) -> Generator[Tuple[int, cv2.Mat, float], None, None]:
         """
-        Iterates over video frames with step stride.
+        Iterates over video frames with step stride using fast sequential decoding.
         """
         stride = max(1, stride)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         idx = 0
         while idx < self.total_frames:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
             ret, frame = self.cap.read()
             if not ret:
                 break
             timestamp = idx / self.fps
             yield idx, frame, timestamp
-            idx += stride
+            
+            idx += 1
+            if stride > 1:
+                for _ in range(stride - 1):
+                    if not self.cap.grab():
+                        return
+                    idx += 1
 
     def close(self):
         if self.cap and self.cap.isOpened():

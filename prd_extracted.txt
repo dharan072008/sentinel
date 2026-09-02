@@ -1,0 +1,308 @@
+SENTINEL
+COMPLETE PRODUCT REQUIREMENTS DOCUMENT
+Context-Aware Border & Civilian-Area Intelligence SystemBuild With Bharat — Prototype / Demo PRD
+1. Product Overview
+SENTINEL is a context-aware surveillance intelligence prototype designed for complex border environments where surveillance cannot rely only on fences, predefined restricted zones, or simple object detection. It analyzes ordinary CCTV footage and progressively converts raw video into contextual intelligence: SEE → IDENTIFY → TRACK → LOCATE → UNDERSTAND → LEARN NORMAL → DETECT DEVIATION → CORRELATE → CONTEXTUALIZE → EXPLAIN.
+2. Problem Statement
+Border regions can contain villages, roads, houses, farms, civilians, animals, birds, vehicles and changing environmental conditions. Basic CCTV analytics may report that a person, bird or vehicle is present, or that a person entered a zone, but these signals alone may not explain whether the activity is ordinary or unusual.
+SENTINEL combines object detection, tracking, spatial intelligence, observable behaviour analysis, behavioural baselines, odd-one-out detection, event-sequence reasoning, bird/drone intelligence, ecological context, multi-sensor evidence and explainable alerts.
+3. Prototype Objective
+The prototype must allow a user to upload a CCTV video and watch the system analyze it while it plays.
+Required flow: Upload CCTV → Play Video → Detect Objects → Track Frame-by-Frame → Spatial Intelligence → Human Behaviour Analysis → Behavioural Baseline → Baseline Comparison → Odd-One-Out → Event Sequence → Bird/Drone Intelligence → Context/Sensor Simulation → Evidence Fusion → Explainable Alert → Final Dashboard.
+4. Product Vision
+Traditional surveillance asks: 'What is there?' SENTINEL asks: 'What is there, what is it doing, is that normal here, and what evidence makes it unusual?'
+5. Target Users
+Surveillance operator — monitors video, tracks entities and reviews alerts.
+Security analyst/supervisor — investigates unusual activity and reviews supporting evidence.
+6. System Inputs
+Primary input: uploaded CCTV video.
+Optional context: region, location, date, time, season, environment type and virtual zones.
+Future sensor inputs: thermal camera, radar, acoustic sensors and environmental sensors.
+Prototype sensor rule: CCTV is the real input; unavailable sensors may be simulated and must be visibly labelled as simulated.
+7. End-to-End Workflow
+Upload video.
+Play video in the dashboard.
+Extract/process frames.
+Detect people, birds, drones, vehicles, animals and unknown objects.
+Assign persistent tracking IDs.
+Build trajectories and movement histories.
+Determine each track's spatial zone.
+Detect restricted-area entry and other spatial events.
+For people, extract observable movement and interaction features.
+Build or use a local behavioural baseline.
+Compare observed behaviour with the baseline.
+Compare multiple entities to identify significant outliers.
+Connect observations into chronological event sequences.
+For bird/aerial objects, branch into bird/drone intelligence.
+Use thermal evidence where available or simulated.
+Estimate bird species when possible.
+Check region, season, time and habitat/ecological consistency.
+Fuse evidence and identify contradictions.
+Generate an explainable priority alert.
+Display the complete result in the final dashboard.
+8. Video Intelligence
+Video upload.
+Video playback.
+Frame extraction.
+Frame number and timestamp.
+Processing status.
+Detection overlays.
+Tracking overlays.
+Zone overlays.
+Event synchronization with the video.
+9. Object Detection
+Initial object classes:
+Person
+Bird
+Drone
+Vehicle
+Animal
+Unknown object
+Every detection should expose object type, confidence, bounding box, timestamp and frame number.
+10. Frame-by-Frame Object Tracking
+The same object must retain a persistent identity across consecutive frames.
+Track ID
+Position over time
+Timestamp
+Speed
+Direction
+Duration
+Trajectory
+Zone history
+Entry/exit events
+11. Trajectory Intelligence
+For every track, SENTINEL builds a movement trajectory that allows the system to understand origin, destination, route, dwell, direction changes and deviations.
+12. Spatial Intelligence
+The prototype must support user-defined virtual zones such as Village, Road, Restricted Area and Sensitive Area.
+Current zone of each tracked object.
+Zone entry and exit.
+Time spent in a zone.
+Movement between zones.
+Proximity to sensitive areas.
+Unusual zone transitions.
+13. Restricted-Area Intelligence
+For people and other tracked entities, the system checks whether they enter defined restricted areas.
+Example: Person P07 → Road → Restricted Area → Exit.
+A restricted-area event becomes one evidence signal. It should not automatically be presented as proof of malicious intent.
+14. Human Behaviour Intelligence
+SENTINEL analyzes observable behaviour from movement, spatial relationships and interactions. It does not claim to read thoughts, determine psychological state or declare a person criminal.
+Speed
+Direction
+Acceleration/deceleration
+Stopping and starting
+Dwell time
+Route
+Route deviation
+Direction changes
+Zone visits
+Restricted-area proximity
+Person-person interaction
+Person-object interaction
+Person-vehicle interaction
+Group movement
+Unusual timing
+15. Person–Object Interaction
+The original bag concept is implemented as a general person-object event sequence rather than a fixed threat rule.
+Person approaches an object.
+Person interacts with the object.
+Object is placed or left.
+Person moves away.
+Object remains.
+The sequence is recorded and evaluated alongside other evidence and the behavioural baseline.
+16. Other Behavioural Sequence Patterns
+Route deviation: normal route → unexpected turn → sensitive/restricted proximity.
+Unusual dwell: arrival → stop → unusually long stay → departure.
+Repeated movement: location A → B → A → B.
+Group separation: group movement → one individual separates → different route → later rejoin.
+These are observable patterns for anomaly analysis, not automatic proof of threat.
+17. Behavioural Baseline
+The baseline represents what normal activity looks like for a particular environment rather than assuming one universal definition of normal.
+Location
+Time
+Movement
+Routes
+Dwell time
+Zone usage
+Interactions
+A baseline can contain common routes, typical speed ranges, activity periods, typical dwell durations, zone usage and common interactions.
+18. Baseline Comparison
+Observed behaviour is compared against expected local behaviour.
+Route deviation
+Dwell deviation
+Zone deviation
+Time deviation
+Movement deviation
+Deviation levels may be displayed as Low, Medium or High.
+19. Odd-One-Out Intelligence
+SENTINEL performs population-level comparison to identify entities that behave significantly differently from surrounding activity.
+Example: 40 people → 37 consistent with baseline → 2 moderate deviations → 1 significant outlier.
+The output is a behavioural outlier for review, not a declaration that the person is a criminal or threat.
+20. Event Sequence Intelligence
+Separate events are connected chronologically so operators can understand the whole sequence instead of receiving unrelated alerts.
+Example: Detection → route deviation → restricted-area entry → unusual dwell → object interaction → exit.
+21. Bird / Drone Intelligence
+Aerial objects follow a dedicated analysis path. The system first tracks the object and evaluates whether its evidence is more consistent with a bird, drone or unknown aerial object.
+Bird-like path: Visual analysis → Thermal evidence → Species identification → Region → Season → Time → Habitat → Ecological consistency.
+22. Thermal Intelligence
+Thermal data can provide an additional evidence source for aerial classification.
+Real thermal camera input in a future production deployment.
+Simulated thermal input for the prototype when hardware is unavailable.
+The dashboard must clearly label simulated thermal information.
+23. Bird Species Intelligence
+When visual information is sufficient, the system estimates a likely species and confidence. If evidence is insufficient, it should return Unknown/Low Confidence rather than forcing a classification.
+24. Ecological Context Intelligence
+The system checks whether the identified or suspected bird is ecologically consistent with the observed context.
+Region — expected in this geographical area?
+Season — expected during this season?
+Time of day — consistent with normal observation/activity?
+Habitat — consistent with the surrounding environment?
+25. Bird vs Drone Reasoning
+The system combines visual appearance, movement, thermal evidence, species confidence and ecological context.
+If evidence agrees, confidence increases. If evidence conflicts, the system reports an ambiguous aerial object and recommends human review.
+26. Context Engine
+Location
+Zone
+Time
+Date
+Season
+Environment
+Historical activity
+Behavioural baseline
+Ecological information
+Sensor evidence
+Core question: Does this observation make sense in this context?
+27. Multi-Sensor Architecture
+Production architecture should allow independent evidence sources to be added without redesigning the intelligence layer.
+CCTV + Thermal + Radar + Acoustic + Environmental → Evidence Fusion.
+For the prototype, only CCTV needs to be genuinely connected. Other signals can be simulated to demonstrate the architecture.
+28. Evidence Fusion
+SENTINEL combines visual, tracking, spatial, behaviour, baseline, ecological, thermal and future sensor evidence.
+The system should preserve the contribution of each evidence source so that the final alert remains explainable.
+29. Contradiction Engine
+The contradiction engine detects situations where evidence sources disagree.
+Example: Visual = bird-like, thermal = inconsistent, ecological context = unusual, movement = unusual → Evidence conflict → Human review.
+The system should prefer uncertainty over a forced classification when evidence is insufficient or contradictory.
+30. Priority Engine
+The priority engine combines multiple signals to determine which events deserve operator attention.
+Spatial deviation
+Behaviour deviation
+Baseline deviation
+Event-sequence significance
+Context deviation
+Sensor/evidence agreement
+The resulting priority is an operational review priority, not a prediction of criminality.
+31. Explainable Intelligence
+Every important alert must answer:
+What happened?
+Where did it happen?
+When did it happen?
+Why was it unusual?
+What evidence contributed?
+Example: Behavioural Outlier — P07 — restricted-area entry, route deviation, unusual dwell and object-interaction sequence — high review priority — human review recommended.
+32. Final Dashboard
+Main CCTV video panel with bounding boxes, labels, track IDs and trajectories.
+Object summary with counts by class.
+Spatial intelligence panel with zones and active tracks.
+Selected-track panel with trajectory, zone, speed, duration and direction.
+Behaviour panel with movement and interaction features.
+Behavioural baseline panel showing expected versus observed activity.
+Odd-One-Out panel showing the significant outlier and reasons.
+Bird/Aerial intelligence panel showing visual classification, thermal status, species, region, season, time and habitat context.
+Event timeline connecting observations.
+Evidence/contradiction panel.
+Explainable alert panel with supporting evidence and human-review action.
+33. Example Final Dashboard Event
+Person P07 is detected in a village CCTV scene. The system tracks P07 across frames. P07 moves away from the common route, approaches a restricted area, remains longer than the local baseline, interacts with an object and leaves. SENTINEL does not simply label the person a threat. It presents the sequence as a significant behavioural outlier with the individual evidence signals visible to the operator.
+34. Example Aerial Event
+Aerial object B04 is detected and tracked. The object appears bird-like. The system evaluates simulated/real thermal evidence, estimates a species where possible, then checks whether that species is expected in the region, season, time and habitat. If evidence is consistent, the system reports high ecological consistency. If evidence conflicts, it reports an ambiguous aerial object and requests human review.
+35. Prototype Architecture
+CCTV Video → OpenCV/FFmpeg → YOLO Detection → ByteTrack/BoT-SORT → Track Store → Spatial Engine → Behaviour Engine / Bird-Drone Engine → Baseline Engine → Odd-One-Out Engine → Event Sequence Engine → Context Engine → Evidence Fusion → Contradiction Engine → Priority Engine → Explainability Layer → React Dashboard.
+36. Technology Stack
+Layer
+Prototype Technology
+Programming
+Python
+Video
+OpenCV + FFmpeg
+Object Detection
+YOLO + PyTorch
+Tracking
+ByteTrack / BoT-SORT
+Spatial Processing
+OpenCV + NumPy
+Behaviour Features
+Python + NumPy
+Anomaly Detection
+scikit-learn / Isolation Forest
+Backend
+FastAPI
+Frontend
+React + TypeScript
+UI
+Tailwind CSS
+Database
+SQLite
+Deployment
+Docker
+Future Edge
+NVIDIA Jetson
+37. MVP — Must Have
+Video upload
+Video playback
+Object detection
+Person/bird/vehicle detection
+Frame-by-frame tracking
+Track IDs
+Trajectories
+Virtual zones
+Restricted-area detection
+Behaviour feature extraction
+Behavioural baseline
+Baseline comparison
+Odd-one-out detection
+Event timeline
+Explainable alert
+Final dashboard
+38. MVP — Should Have
+Person-object interaction
+Bird species classification
+Ecological context
+Bird/drone reasoning
+Simulated thermal evidence
+Evidence contradiction
+39. Future Enhancements
+Real thermal cameras
+Radar integration
+Acoustic sensing
+Environmental sensing
+Cross-camera tracking
+Long-term behavioural learning
+Seasonal baselines
+Edge deployment
+Larger ecological knowledge base
+40. Accuracy and Human Oversight
+SENTINEL is a decision-support system. Detection, anomaly and outlier results are evidence for review, not automatic conclusions about a person's intent or criminality.
+The system must expose uncertainty, confidence and evidence conflicts and provide a human-review step.
+41. Success Criteria
+A user can upload a CCTV video.
+The video plays while analysis is visible.
+Objects are detected and labelled.
+Objects retain tracking IDs across frames.
+Trajectories are visible.
+Spatial zones can be defined and analyzed.
+Restricted-area events are detected.
+Observable behaviour features are extracted.
+A behavioural baseline is displayed.
+Observed activity can be compared with the baseline.
+An odd-one-out can be identified.
+Events can be connected into a sequence.
+Bird/aerial analysis can show species/ecological context.
+Simulated sensor inputs are clearly identified.
+Evidence conflicts can be shown.
+Alerts explain why an event was prioritized.
+The complete result is visible in one final dashboard.
+42. Product Differentiation
+SENTINEL's differentiation is the transition from simple object detection to contextual behavioural intelligence.
+Instead of treating every detected object as a possible threat, the system establishes environmental context, learns what is normal, detects significant deviations, correlates events and explains the evidence.
+43. Final Product Definition
+SENTINEL is a context-aware surveillance intelligence platform that turns ordinary CCTV footage into an adaptive understanding of people, objects and environmental activity—tracking what is present, understanding how it moves, learning what is normal for that location and context, identifying meaningful outliers, contextualizing bird/aerial activity, and providing explainable evidence for human review.

@@ -53,13 +53,27 @@ const MiniCCTVThumbnail: React.FC<{ scenarioId: string }> = ({ scenarioId }) => 
   return <canvas ref={canvasRef} width={280} height={110} className="w-full h-full object-cover" />;
 };
 
+interface FeedItem {
+  id: string;
+  camCode: string;
+  title: string;
+  location: string;
+  sensor: string;
+  threatLevel: string;
+  outlier: string;
+  eventSnippet: string;
+  badgeColor: string;
+  videoUrl?: string;
+  isCctvFootage?: boolean;
+}
+
 export const CCTVFeedSidebar: React.FC<CCTVFeedSidebarProps> = ({
   scenarios,
   selectedScenarioId,
   onSelectScenario,
   isAnalyzing
 }) => {
-  const feeds = [
+  const defaultPresetFeeds: FeedItem[] = [
     {
       id: 'border_incursion',
       camCode: 'CAM-01',
@@ -117,6 +131,33 @@ export const CCTVFeedSidebar: React.FC<CCTVFeedSidebarProps> = ({
     }
   ];
 
+  // Map backend scenarios dynamically if available
+  const feeds: FeedItem[] = (scenarios && scenarios.length > 0)
+    ? scenarios.map((scen, idx) => {
+        const presetMatch = defaultPresetFeeds.find(p => p.id === scen.id);
+        const threatLevel = scen.expected_threat_level.replace('_REVIEW', '');
+        const badgeColor = threatLevel === 'CRITICAL' 
+          ? 'border-red-500/60 bg-red-950/60 text-red-300'
+          : threatLevel === 'HIGH'
+          ? 'border-orange-500/60 bg-orange-950/60 text-orange-300'
+          : 'border-emerald-500/60 bg-emerald-950/60 text-emerald-300';
+
+        return {
+          id: scen.id,
+          camCode: `CAM-${String(idx + 1).padStart(2, '0')}`,
+          title: scen.title,
+          location: scen.region || 'Surveillance Zone',
+          sensor: scen.is_cctv_footage ? 'YOLOv8 Real CCTV Footage' : (presetMatch?.sensor || 'CCTV Optical'),
+          threatLevel: threatLevel,
+          outlier: scen.outlier_target || 'Auto-Detected',
+          eventSnippet: scen.description,
+          badgeColor: presetMatch?.badgeColor || badgeColor,
+          videoUrl: scen.video_url,
+          isCctvFootage: !!scen.is_cctv_footage
+        };
+      })
+    : defaultPresetFeeds;
+
   return (
     <div className="flex flex-col bg-[#0b1329] border border-cyan-900/40 rounded-xl overflow-hidden shadow-2xl">
       {/* Header */}
@@ -129,7 +170,7 @@ export const CCTVFeedSidebar: React.FC<CCTVFeedSidebarProps> = ({
         </div>
         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-          <span>5 FEEDS ACTIVE</span>
+          <span>{feeds.length} FEEDS ACTIVE</span>
         </span>
       </div>
 
@@ -166,9 +207,17 @@ export const CCTVFeedSidebar: React.FC<CCTVFeedSidebarProps> = ({
                 </span>
               </div>
 
-              {/* Animated Live Mini Canvas Preview */}
+              {/* Animated Live Mini Canvas / Video Preview */}
               <div className="relative w-full h-24 bg-black rounded overflow-hidden border border-slate-800/80 group-hover:border-cyan-500/40 transition-colors">
-                <MiniCCTVThumbnail scenarioId={feed.id} />
+                {feed.isCctvFootage && feed.videoUrl ? (
+                  feed.videoUrl.endsWith('.gif') ? (
+                    <img src={feed.videoUrl} alt={feed.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={feed.videoUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+                  )
+                ) : (
+                  <MiniCCTVThumbnail scenarioId={feed.id} />
+                )}
                 
                 {/* Overlay Badge */}
                 <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm text-[9px] font-mono text-slate-300 border border-slate-700">
@@ -202,7 +251,7 @@ export const CCTVFeedSidebar: React.FC<CCTVFeedSidebarProps> = ({
                 }`}
               >
                 <Play className="w-3 h-3 fill-current" />
-                <span>{isSelected ? 'FEED ACTIVE • SIMULATING' : 'SWITCH TO THIS FEED'}</span>
+                <span>{isSelected ? 'FEED ACTIVE • RUNNING AI' : 'SWITCH TO THIS FEED'}</span>
               </button>
             </div>
           );

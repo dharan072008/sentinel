@@ -1,7 +1,7 @@
 """
-SENTINEL - Object Detector Module
-Supports YOLOv8 PyTorch detection with automated fallback to adaptive vision detector
-for classes: person, bird, drone, vehicle, animal, unknown.
+SENTINEL - Precision Multi-Object Detector Module
+Combines YOLOv8 multi-class deep learning detection with background-subtraction
+motion verification, spatial scene context filtering, and adaptive contour tracking.
 """
 
 import os
@@ -18,16 +18,20 @@ except ImportError:
 
 class SentinelDetector:
     """
-    Detects Person, Bird, Drone, Vehicle, Animal, Unknown objects in surveillance video frames.
+    Detects Person, Bird, Drone, Vehicle, Animal, and Object in surveillance video frames
+    with motion verification and static false-positive suppression.
     """
     CLASS_MAPPING = {
         0: "person",
-        1: "bird",       # bicycle in standard coco, remapped for aerial or custom
+        1: "vehicle",    # bicycle in COCO
         2: "vehicle",    # car
         3: "vehicle",    # motorcycle
+        4: "drone",      # airplane -> drone/aerial
         5: "vehicle",    # bus
+        6: "vehicle",    # train
         7: "vehicle",    # truck
-        14: "bird",      # bird in COCO
+        8: "vehicle",    # boat
+        14: "bird",      # bird
         15: "animal",    # cat
         16: "animal",    # dog
         17: "animal",    # horse
@@ -40,19 +44,23 @@ class SentinelDetector:
         28: "object",    # suitcase
     }
 
-    def __init__(self, model_name: str = "yolov8n.pt", conf_thresh: float = 0.35):
+    def __init__(self, model_name: str = "yolov8n.pt", conf_thresh: float = 0.20):
         self.conf_thresh = conf_thresh
         self.model = None
         self.model_loaded = False
+        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=25, detectShadows=False)
         
         if YOLO_AVAILABLE:
             try:
-                # Initialize YOLOv8
                 self.model = YOLO(model_name)
                 self.model_loaded = True
             except Exception as e:
-                print(f"[SentinelDetector] Warning: Could not initialize YOLO model ({e}). Using algorithmic detector.")
+                print(f"[SentinelDetector] Warning: Could not initialize YOLO model ({e}). Using adaptive motion detector.")
                 self.model = None
+
+    def reset_bg_subtractor(self):
+        """Resets background subtractor state between video analyses."""
+        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=25, detectShadows=False)
 
     def detect(self, frame: np.ndarray, frame_idx: int = 0) -> List[Dict[str, Any]]:
         """
@@ -62,9 +70,12 @@ class SentinelDetector:
         detections = []
         h, w = frame.shape[:2]
 
+        # Apply background subtractor for motion mask (used for fallback or motion telemetry)
+        fg_mask = self.bg_subtractor.apply(frame)
+
         if self.model_loaded and self.model is not None:
             try:
-                results = self.model(frame, conf=self.conf_thresh, imgsz=480, verbose=False)
+                results = self.model(frame, conf=0.18, imgsz=640, verbose=False)
                 for r in results:
                     boxes = r.boxes
                     for box in boxes:
@@ -72,61 +83,77 @@ class SentinelDetector:
                         conf = float(box.conf[0].item())
                         xyxy = box.xyxy[0].tolist()
                         
-                        # Map to sentinel class
-                        class_name = self.CLASS_MAPPING.get(cls_id, "unknown")
+                        if cls_id not in self.CLASS_MAPPING:
+                            continue
                         
-                        # Drone heuristic for small aerial objects moving at high altitude/upper screen
-                        if class_name == "bird" or cls_id in [4, 8]:  # airplane/boat COCO fallback
-                            # If aspect ratio is wide and rigid, flag potential drone
-                            box_w = xyxy[2] - xyxy[0]
-                            box_h = xyxy[3] - xyxy[1]
-                            if box_w > 1.4 * box_h and xyxy[1] < h * 0.45:
-                                class_name = "drone"
+                        cname = self.CLASS_MAPPING[cls_id]
+                        box_w = xyxy[2] - xyxy[0]
+                        box_h = xyxy[3] - xyxy[1]
+                        aspect = box_h / max(1.0, box_w)
                         
+                        # --- SANITY & ASPECT RATIO REFINEMENTS ---
+                        # 1. Tall vertical detection misclassified as vehicle -> reclassify as person
+                        if cname == "vehicle" and aspect > 1.2 and box_h > 35:
+                            cname = "person"
+
+                        # 2. Suppress full-frame background box artifacts
+                        if box_w >= 0.90 * w and box_h >= 0.90 * h:
+                            continue
+
                         detections.append({
                             "bbox": [round(c, 1) for c in xyxy],
-                            "class_name": class_name,
+                            "class_name": cname,
                             "confidence": round(conf, 3),
                             "raw_class_id": cls_id
                         })
-                return detections
             except Exception as e:
                 print(f"[SentinelDetector] YOLO inference error: {e}")
 
-        # Fallback adaptive vision / contour detection if YOLO not loaded or error
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for c in contours:
-            area = cv2.contourArea(c)
-            if 600 < area < 40000:
-                x, y, bw, bh = cv2.boundingRect(c)
-                aspect = bh / max(1.0, float(bw))
-                
-                # Heuristic categorization
-                if aspect > 1.8 and bh > 50:
-                    class_name = "person"
-                    conf = 0.82
-                elif aspect < 0.8 and y < h * 0.4:
-                    class_name = "bird" if area < 4000 else "drone"
-                    conf = 0.76
-                elif aspect < 0.9 and bw > 70:
-                    class_name = "vehicle"
-                    conf = 0.85
-                elif 0.8 <= aspect <= 1.5 and area < 2500:
-                    class_name = "object"
-                    conf = 0.70
-                else:
-                    class_name = "unknown"
-                    conf = 0.60
+        # --- MOTION CONTOURS FALLBACK ONLY IF NO DEEP LEARNING MODEL OR ZERO DETECTIONS ---
+        if not self.model_loaded or len(detections) == 0:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            clean_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
+            clean_mask = cv2.dilate(clean_mask, kernel, iterations=2)
+            
+            contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in contours:
+                area = cv2.contourArea(c)
+                if area > 350:
+                    x, y, bw, bh = cv2.boundingRect(c)
+                    motion_box = [float(x), float(y), float(x + bw), float(y + bh)]
                     
-                detections.append({
-                    "bbox": [float(x), float(y), float(x + bw), float(y + bh)],
-                    "class_name": class_name,
-                    "confidence": conf,
-                    "raw_class_id": -1
-                })
-        
-        return detections[:15]  # limit to top detections
+                    has_overlap = False
+                    for d in detections:
+                        yb = d["bbox"]
+                        xx1 = max(motion_box[0], yb[0])
+                        yy1 = max(motion_box[1], yb[1])
+                        xx2 = min(motion_box[2], yb[2])
+                        yy2 = min(motion_box[3], yb[3])
+                        inter = max(0, xx2 - xx1) * max(0, yy2 - yy1)
+                        if inter > 0.20 * (bw * bh):
+                            has_overlap = True
+                            break
+                    
+                    if not has_overlap:
+                        aspect = bh / max(1.0, float(bw))
+                        if aspect > 0.95 and bh > 35:
+                            cname = "person"
+                            conf = 0.75
+                        elif aspect < 0.8 and bw > 60 and y > h * 0.3:
+                            cname = "vehicle"
+                            conf = 0.70
+                        elif y < h * 0.4 and area < 2500:
+                            cname = "drone" if aspect < 0.8 else "bird"
+                            conf = 0.68
+                        else:
+                            cname = "object"
+                            conf = 0.60
+                        
+                        detections.append({
+                            "bbox": motion_box,
+                            "class_name": cname,
+                            "confidence": conf,
+                            "raw_class_id": -2
+                        })
+
+        return detections[:15]

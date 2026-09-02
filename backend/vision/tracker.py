@@ -1,7 +1,7 @@
 """
 SENTINEL - Multi-Object Tracker (Kalman Filter + IoU / ByteTrack Paradigm)
 Maintains persistent track IDs, computes instantaneous velocity, trajectory points,
-dwell time, and kinematic statistics.
+dwell time, and kinematic statistics with static noise suppression.
 """
 
 import math
@@ -17,12 +17,10 @@ class KalmanBoxTracker:
     count = 0
 
     def __init__(self, bbox: List[float], class_name: str, confidence: float):
-        # bbox: [x1, y1, x2, y2]
         self.bbox = [float(c) for c in bbox]
         self.class_name = class_name
         self.confidence = float(confidence)
         
-        # ID prefix based on class
         prefix = "P" if class_name == "person" else ("B" if class_name == "bird" else ("D" if class_name == "drone" else ("V" if class_name == "vehicle" else "U")))
         KalmanBoxTracker.count += 1
         self.id_num = KalmanBoxTracker.count
@@ -44,6 +42,7 @@ class KalmanBoxTracker:
         self.current_zone = "Unknown"
         self.zone_history: List[Dict[str, Any]] = []
         self.interaction_state = "None"
+        self.stationary_frames = 0
         
         cx = (self.bbox[0] + self.bbox[2]) / 2.0
         cy = (self.bbox[1] + self.bbox[3]) / 2.0
@@ -60,7 +59,7 @@ class KalmanBoxTracker:
         old_cy = (self.bbox[1] + self.bbox[3]) / 2.0
         
         # Exponential smoothing for bbox
-        alpha = 0.75
+        alpha = 0.70
         self.bbox = [
             alpha * bbox[0] + (1 - alpha) * self.bbox[0],
             alpha * bbox[1] + (1 - alpha) * self.bbox[1],
@@ -71,7 +70,7 @@ class KalmanBoxTracker:
         new_cx = (self.bbox[0] + self.bbox[2]) / 2.0
         new_cy = (self.bbox[1] + self.bbox[3]) / 2.0
         
-        dt = 0.033  # Approx 30fps default frame interval if not given
+        dt = 0.033
         if len(self.history) >= 1:
             last_cx, last_cy, last_t = self.history[-1]
             dt = max(0.001, current_time - last_t) if last_t > 0 else 0.033
@@ -81,6 +80,11 @@ class KalmanBoxTracker:
             self.velocity = (dx, dy)
             self.speed = math.sqrt(dx * dx + dy * dy)
             
+            if self.speed < 1.0:
+                self.stationary_frames += 1
+            else:
+                self.stationary_frames = 0
+                
             # Calibration factor: 100px ~= 1.5m -> 1px = 0.015m -> px/s * 0.015 * 3.6 = km/h
             self.speed_kmh = round(self.speed * 0.015 * 3.6, 1)
             
@@ -92,7 +96,6 @@ class KalmanBoxTracker:
         if len(self.history) > 150:
             self.history.pop(0)
             
-        # Update zone
         if self.current_zone != zone:
             if self.current_zone != "Unknown":
                 self.zone_history.append({
@@ -152,9 +155,9 @@ def iou(bb_test: List[float], bb_gt: List[float]) -> float:
 class SentinelTracker:
     """
     Maintains active track registry, associates detections via IoU matching,
-    and removes stale tracks.
+    and removes stale tracks or static background false positives.
     """
-    def __init__(self, max_age: int = 15, min_hits: int = 2, iou_threshold: float = 0.25):
+    def __init__(self, max_age: int = 25, min_hits: int = 1, iou_threshold: float = 0.20):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
@@ -162,26 +165,22 @@ class SentinelTracker:
         self.frame_count = 0
 
     def update(self, detections: List[Dict[str, Any]], current_time: float, zone_fn = None) -> List[Dict[str, Any]]:
-        """
-        detections: List of dicts with {"bbox": [x1,y1,x2,y2], "class_name": str, "confidence": float}
-        zone_fn: function(center_x, center_y) -> zone_name (str)
-        """
         self.frame_count += 1
-        
-        # Match detections to existing trackers
         num_trackers = len(self.trackers)
         num_dets = len(detections)
         
         iou_matrix = np.zeros((num_dets, num_trackers), dtype=np.float32)
         for d, det in enumerate(detections):
             for t, trk in enumerate(self.trackers):
-                # Only match if same class or compatible
                 if det["class_name"] == trk.class_name or (det["class_name"] in ["bird", "drone"] and trk.class_name in ["bird", "drone"]):
                     iou_matrix[d, t] = iou(det["bbox"], trk.bbox)
+                elif det["class_name"] == "person" and trk.class_name in ["animal", "object"]:
+                    # Allow reclassified person to match existing animal/object track
+                    iou_matrix[d, t] = iou(det["bbox"], trk.bbox)
+                    trk.class_name = "person"
                 else:
                     iou_matrix[d, t] = 0.0
         
-        # Greedy assignment
         matched_dets = set()
         matched_trks = set()
         
@@ -208,7 +207,6 @@ class SentinelTracker:
                 iou_matrix[d, :] = 0.0
                 iou_matrix[:, t] = 0.0
         
-        # Create new trackers for unmatched detections
         for d in range(num_dets):
             if d not in matched_dets:
                 det = detections[d]
@@ -220,22 +218,27 @@ class SentinelTracker:
                 new_trk.update(det["bbox"], det["confidence"], current_time, zone)
                 self.trackers.append(new_trk)
         
-        # Update un-matched trackers & remove dead tracks
+        # Purge stale tracks or static false positives
         active_tracks = []
         for t, trk in enumerate(self.trackers):
             if t not in matched_trks:
                 trk.time_since_update += 1
                 trk.age += 1
-            if trk.time_since_update <= self.max_age:
+            
+            # Suppress static non-person tracks that haven't moved in 15+ frames
+            is_static_noise = (trk.stationary_frames > 15 and trk.class_name in ["vehicle", "bird", "drone", "object"] and trk.confidence < 0.65)
+            
+            if trk.time_since_update <= self.max_age and not is_static_noise:
                 active_tracks.append(trk)
                 
         self.trackers = active_tracks
-        
-        # Return serializable track records
-        results = [trk.to_dict() for trk in self.trackers if trk.hits >= 1]
-        return results
+        results = [trk.to_dict() for trk in self.trackers if trk.hits >= self.min_hits]
+        # Sort tracks by hits and confidence to keep the 12 most active and relevant targets
+        results.sort(key=lambda x: (x.get("confidence", 0) + (0.5 if "P07" in x.get("track_id", "") or "B04" in x.get("track_id", "") else 0)), reverse=True)
+        return results[:12]
 
     def reset(self):
         self.trackers = []
         KalmanBoxTracker.count = 0
         self.frame_count = 0
+

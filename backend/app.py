@@ -36,12 +36,17 @@ from scenarios.scenario_loader import ScenarioCatalog
 
 # Initialize Directories
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WORKSPACE_DIR = os.path.dirname(BASE_DIR)
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 VIDEOS_DIR = os.path.join(STATIC_DIR, "videos")
 UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
+CCTV_DIR = os.path.join(WORKSPACE_DIR, "cctv footages")
+ROOT_VIDEOS_DIR = os.path.join(WORKSPACE_DIR, "videos")
 
 os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs(CCTV_DIR, exist_ok=True)
+os.makedirs(ROOT_VIDEOS_DIR, exist_ok=True)
 
 # Generate Synthetic Demo Scenarios on startup
 ensure_scenario_videos(VIDEOS_DIR)
@@ -61,6 +66,8 @@ app.add_middleware(
 )
 
 # Mount static files for video streaming
+app.mount("/static/cctv_footages", StaticFiles(directory=CCTV_DIR), name="cctv_footages")
+app.mount("/static/videos_root", StaticFiles(directory=ROOT_VIDEOS_DIR), name="videos_root")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Core Subsystems Singleton Registry
@@ -204,6 +211,8 @@ async def upload_video(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Failed to process uploaded video: {str(e)}")
 
 
+ANALYSIS_CACHE = {}
+
 @app.post("/api/analyze_video")
 def analyze_video(req: VideoAnalysisRequest):
     """
@@ -211,18 +220,43 @@ def analyze_video(req: VideoAnalysisRequest):
     SEE -> IDENTIFY -> TRACK -> LOCATE -> UNDERSTAND -> LEARN NORMAL ->
     DETECT DEVIATION -> CORRELATE -> CONTEXTUALIZE -> EXPLAIN.
     """
+    cache_key = f"{req.video_source}_{req.region}_{req.season}_{req.time_of_day}_{req.habitat}_{req.step_stride}"
+    clean_src = req.video_source.replace("preset:", "").replace("cctv:", "").replace("videos/", "")
+
+    if cache_key in ANALYSIS_CACHE:
+        return ANALYSIS_CACHE[cache_key]
+    if req.video_source in ANALYSIS_CACHE:
+        return ANALYSIS_CACHE[req.video_source]
+    if clean_src in ANALYSIS_CACHE:
+        return ANALYSIS_CACHE[clean_src]
+    if f"preset:{clean_src}" in ANALYSIS_CACHE:
+        return ANALYSIS_CACHE[f"preset:{clean_src}"]
+
     # 1. Resolve video path
-    if req.video_source.startswith("preset:"):
-        scenario_id = req.video_source.replace("preset:", "")
-        scenarios = {s["id"]: s for s in ScenarioCatalog.get_preset_scenarios(VIDEOS_DIR)}
-        if scenario_id not in scenarios:
-            raise HTTPException(status_code=404, detail="Scenario not found")
-        video_path = os.path.join(VIDEOS_DIR, scenarios[scenario_id]["filename"])
-        video_url = scenarios[scenario_id]["video_url"]
+    scenarios = {s["id"]: s for s in ScenarioCatalog.get_preset_scenarios(VIDEOS_DIR)}
+    
+    if clean_src in scenarios:
+        scen = scenarios[clean_src]
+        if scen.get("video_url", "").startswith("/static/videos_root/"):
+            video_path = os.path.join(ROOT_VIDEOS_DIR, scen["filename"])
+        elif scen.get("is_cctv_footage"):
+            video_path = os.path.join(CCTV_DIR, scen["filename"])
+        else:
+            video_path = os.path.join(VIDEOS_DIR, scen["filename"])
+        video_url = scen["video_url"]
     elif req.video_source.startswith("upload:"):
         filename = req.video_source.replace("upload:", "")
         video_path = os.path.join(UPLOADS_DIR, filename)
         video_url = f"/static/uploads/{filename}"
+    elif os.path.exists(os.path.join(ROOT_VIDEOS_DIR, clean_src)):
+        video_path = os.path.join(ROOT_VIDEOS_DIR, clean_src)
+        video_url = f"/static/videos_root/{clean_src}"
+    elif os.path.exists(os.path.join(CCTV_DIR, clean_src)):
+        video_path = os.path.join(CCTV_DIR, clean_src)
+        video_url = f"/static/cctv_footages/{clean_src}"
+    elif os.path.exists(os.path.join(VIDEOS_DIR, clean_src)):
+        video_path = os.path.join(VIDEOS_DIR, clean_src)
+        video_url = f"/static/videos/{clean_src}"
     else:
         video_path = req.video_source
         video_url = req.video_source
@@ -232,6 +266,9 @@ def analyze_video(req: VideoAnalysisRequest):
 
     # 2. Reset session and tracking state
     tracker = SentinelTracker(max_age=20, min_hits=1, iou_threshold=0.20)
+    tracker.reset()
+    detector.reset_bg_subtractor()
+
     behaviour_engine = BehaviourEngine()
     sequence_engine = EventSequenceEngine()
     bird_classifier = BirdDroneClassifier()
@@ -246,8 +283,9 @@ def analyze_video(req: VideoAnalysisRequest):
     all_spatial_events = []
     all_interaction_events = []
     
-    # 3. Process Video Frame-by-Frame
-    for frame_idx, frame, timestamp in proc.frame_generator(stride=max(1, req.step_stride)):
+    # 3. Process Video Frame-by-Frame with optimized stride
+    stride = max(1, req.step_stride)
+    for frame_idx, frame, timestamp in proc.frame_generator(stride=stride):
         # SEE & IDENTIFY
         dets = detector.detect(frame, frame_idx)
         
@@ -405,7 +443,7 @@ def analyze_video(req: VideoAnalysisRequest):
     CURRENT_SESSION["baseline_results"] = baseline_results
     CURRENT_SESSION["analysis_complete"] = True
 
-    return {
+    res_payload = {
         "status": "SUCCESS",
         "video_metadata": meta,
         "video_url": video_url,
@@ -419,6 +457,8 @@ def analyze_video(req: VideoAnalysisRequest):
         "spatial_events": all_spatial_events,
         "dossiers": dossiers
     }
+    ANALYSIS_CACHE[cache_key] = res_payload
+    return res_payload
 
 
 @app.get("/api/dossier/{track_id}")

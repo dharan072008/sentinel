@@ -21,7 +21,10 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
-*.log
+# Uploads & Temp files
+backend/static/uploads/
+/*.mp4
 
 # Keep scenario videos directory structure
 !backend/static/videos/
+

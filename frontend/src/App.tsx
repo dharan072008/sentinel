@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   fetchHealth, 
   fetchScenarios, 
@@ -66,6 +66,7 @@ export function App() {
   const [baselineSummary, setBaselineSummary] = useState<BaselineComparison[]>([]);
   const [aerialResults, setAerialResults] = useState<Record<string, AerialTelemetry>>({});
   const [dossiers, setDossiers] = useState<Record<string, ExplainableDossier>>({});
+  const [videoMetadata, setVideoMetadata] = useState<{ width: number; height: number; duration_seconds: number } | null>(null);
   
   // Selected entity for deep dive
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>('P07');
@@ -73,6 +74,25 @@ export function App() {
   const [leftTab, setLeftTab] = useState<'CCTV_FEEDS' | 'TRACKS'>('CCTV_FEEDS');
   const [bottomTab, setBottomTab] = useState<'ODD_ONE_OUT' | 'BASELINE' | 'AERIAL' | 'TIMELINE' | 'ZONES'>('ODD_ONE_OUT');
 
+
+  const bottomDashboardRef = useRef<HTMLDivElement | null>(null);
+
+  const clearAnalysisState = () => {
+    setTracks([]);
+    setFrameRecords([]);
+    setSpatialEvents([]);
+    setOddOneOut(null);
+    setBaselineSummary([]);
+    setAerialResults({});
+    setDossiers({});
+    setSelectedTrackId(null);
+  };
+
+  const handleVideoEnded = React.useCallback(() => {
+    if (bottomDashboardRef.current) {
+      bottomDashboardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   // Initial Load: Fetch Scenarios & Default Zones
   useEffect(() => {
@@ -97,6 +117,8 @@ export function App() {
   // Handle Scenario Selection (Puts selected CCTV directly in the center)
   const handleSelectScenario = (scenarioId: string) => {
     setSelectedScenarioId(scenarioId);
+    clearAnalysisState();
+
     if (scenarioId === 'custom') return;
 
     if (scenarioId === 'live_webcam') {
@@ -165,6 +187,7 @@ export function App() {
     if (!file) return;
 
     try {
+      clearAnalysisState();
       setIsAnalyzing(true);
       const res = await uploadVideo(file);
       setSelectedScenarioId('custom');
@@ -190,6 +213,7 @@ export function App() {
       const res: VideoAnalysisResponse = await analyzeVideo(videoSource, ctx);
       
       setVideoUrl(res.video_url);
+      setVideoMetadata(res.video_metadata || null);
       setTracks(res.tracks);
       setFrameRecords(res.frame_records);
       setSpatialEvents(res.spatial_events);
@@ -349,11 +373,13 @@ export function App() {
             timeOfDay={timeOfDay}
             habitat={habitat}
             onLiveUpdate={handleLiveUpdate}
+            videoMetadata={videoMetadata}
+            onVideoEnded={handleVideoEnded}
           />
 
 
           {/* Bottom Multi-Engine Intelligence Tabs */}
-          <div className="flex flex-col bg-[#0b1326] border border-cyan-900/40 rounded-xl overflow-hidden shadow-2xl">
+          <div ref={bottomDashboardRef} id="intelligence-dashboard" className="flex flex-col bg-[#0b1326] border border-cyan-900/40 rounded-xl overflow-hidden shadow-2xl">
             {/* Tab Navigation */}
             <div className="flex items-center gap-1 px-3 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono overflow-x-auto">
               <button

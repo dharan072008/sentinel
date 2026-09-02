@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { TrackData, VirtualZone, FrameRecord, SpatialEvent } from '../types';
 import { processLiveFrame, resetLiveSession } from '../services/api';
-import { drawScenarioScene, getScenarioEntities, drawEntityVisual, SimulationEntity } from '../services/tacticalRenderer';
+import { drawScenarioScene, getScenarioEntities, drawEntityVisual } from '../services/tacticalRenderer';
 
 
 interface VideoPlayerCanvasProps {
@@ -35,6 +35,8 @@ interface VideoPlayerCanvasProps {
   timeOfDay?: string;
   habitat?: string;
   onLiveUpdate?: (liveData: any) => void;
+  videoMetadata?: { width: number; height: number; duration_seconds: number } | null;
+  onVideoEnded?: () => void;
 }
 
 export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
@@ -50,16 +52,20 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
   season = 'Winter',
   timeOfDay = 'Day',
   habitat = 'Village Perimeter',
-  onLiveUpdate
+  onLiveUpdate,
+  videoMetadata,
+  onVideoEnded
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(10);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [hasEnded, setHasEnded] = useState(false);
   
   // Layer Toggles
   const [showZones, setShowZones] = useState(true);
@@ -72,12 +78,73 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
   const [isWebcamActive, setIsWebcamActive] = useState(false);
   const [webcamError, setWebcamError] = useState<string | null>(null);
   const [liveTracks, setLiveTracks] = useState<TrackData[]>([]);
-  const [liveSpatialEvents, setLiveSpatialEvents] = useState<SpatialEvent[]>([]);
   const [simulateAerial, setSimulateAerial] = useState(false);
   const [isLiveProcessing, setIsLiveProcessing] = useState(false);
-  const [liveFrameCount, setLiveFrameCount] = useState(0);
+  const [simulateIntruder, setSimulateIntruder] = useState(false);
 
   const liveProcessingBusyRef = useRef(false);
+  const dwellCounterRef = useRef<number>(0);
+
+  const isGif = videoUrl ? videoUrl.toLowerCase().includes('.gif') : false;
+
+  // Sync duration from videoMetadata if provided
+  useEffect(() => {
+    if (videoMetadata?.duration_seconds) {
+      setDuration(videoMetadata.duration_seconds);
+    }
+  }, [videoMetadata]);
+
+  // Reset playback when videoUrl changes
+  useEffect(() => {
+    setCurrentTime(0);
+    setHasEnded(false);
+    setIsPlaying(!isAnalyzing);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      if (isAnalyzing) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [videoUrl]);
+
+  // Synchronize playback when AI analysis completes
+  useEffect(() => {
+    if (isAnalyzing) {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+      }
+      setCurrentTime(0);
+    } else if (frameRecords && frameRecords.length > 0 && !isLiveMode) {
+      setCurrentTime(0);
+      setHasEnded(false);
+      setIsPlaying(true);
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isAnalyzing, frameRecords, isLiveMode]);
+
+  const handleVideoEnded = useCallback(() => {
+    setIsPlaying(false);
+    setHasEnded(true);
+    if (onVideoEnded) {
+      onVideoEnded();
+    }
+  }, [onVideoEnded]);
+
+  const handleReplay = useCallback(() => {
+    setHasEnded(false);
+    setCurrentTime(0);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {});
+    }
+    setIsPlaying(true);
+  }, []);
 
   // 1. Live Webcam Stream Handling
   useEffect(() => {
@@ -127,11 +194,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     };
   }, [isLiveMode]);
 
-  const motionHistoryRef = useRef<{ center: [number, number]; time: number }[]>([]);
-  const dwellCounterRef = useRef<number>(0);
-  const [simulateIntruder, setSimulateIntruder] = useState(false);
-
-  // 2. Real-time Live Frame Processing Loop (with instant Client Motion Tracker)
+  // 2. Real-time Live Frame Processing Loop
   useEffect(() => {
     if (!isLiveMode || !isWebcamActive) return;
 
@@ -140,13 +203,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       if (!liveVideoRef.current || liveVideoRef.current.readyState < 2) return;
 
       frameCount++;
-      const now = Date.now();
-
-      // 1. Instant Client-Side Bounding Box & Target Tracker
-      // Gives immediate 100% responsive tracking in the browser
       const clientTracks: TrackData[] = [];
 
-      // Primary User Track (P01) tracking user presence in frame
       dwellCounterRef.current += 0.15;
       const userTrack: TrackData = {
         track_id: 'P01',
@@ -166,7 +224,6 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       };
       clientTracks.push(userTrack);
 
-      // If user enables simulated intruder in webcam mode
       if (simulateIntruder) {
         const simX = 120 + ((frameCount * 15) % 720);
         const simY = 220 + Math.sin(frameCount * 0.2) * 40;
@@ -189,7 +246,6 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
         clientTracks.push(intruderTrack);
       }
 
-      // If user enables simulated aerial drone in webcam mode
       if (simulateAerial) {
         const droneX = 80 + ((frameCount * 18) % 800);
         const droneY = 90 + Math.sin(frameCount * 0.3) * 15;
@@ -213,38 +269,16 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       }
 
       setLiveTracks(clientTracks);
-      setLiveFrameCount(frameCount);
 
-      // Trigger instant UI update with client simulated data
       if (onLiveUpdate) {
         onLiveUpdate({
           accumulated_tracks: clientTracks,
           active_tracks: clientTracks,
           frame_index: frameCount,
-          odd_one_out: simulateIntruder ? {
-            has_outlier: true,
-            primary_outlier: {
-              track_id: 'P07-INTRUDER',
-              reason: 'Restricted-zone incursion & high-velocity path anomaly'
-            },
-            outlier_scores: { 'P01': 0.12, 'P07-INTRUDER': 0.94 }
-          } : null,
-          spatial_events: simulateIntruder ? [
-            {
-              event_type: 'RESTRICTED_INCURSION',
-              track_id: 'P07-INTRUDER',
-              class_name: 'person',
-              zone_name: 'Restricted Zone',
-              timestamp: frameCount * 0.15,
-              position: [350, 220],
-              severity: 'CRITICAL',
-              description: 'Infiltrator crossed into Restricted Perimeter without authorization'
-            }
-          ] : []
+          spatial_events: []
         });
       }
 
-      // 2. Background Server YOLOv8 Analysis (if server available)
       if (!liveProcessingBusyRef.current) {
         try {
           liveProcessingBusyRef.current = true;
@@ -271,7 +305,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
             }
           }
         } catch (err) {
-          // Server offline or starting, client tracking handles seamless display
+          // ignore
         } finally {
           liveProcessingBusyRef.current = false;
           setIsLiveProcessing(false);
@@ -282,56 +316,73 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     return () => clearInterval(interval);
   }, [isLiveMode, isWebcamActive, region, season, timeOfDay, habitat, simulateAerial, simulateIntruder, zones, onLiveUpdate]);
 
-  // Reset Live Tracker Session
   const handleResetLive = async () => {
     try {
       dwellCounterRef.current = 0;
       await resetLiveSession();
       setLiveTracks([]);
-      setLiveSpatialEvents([]);
-      setLiveFrameCount(0);
     } catch (err) {
       console.error('Reset live error:', err);
     }
   };
 
+  // Find frame record closest to current playback timestamp
+  const currentFrameRecord = frameRecords && frameRecords.length > 0
+    ? frameRecords.reduce<FrameRecord | null>((prev, curr) => {
+        if (!prev) return curr;
+        return Math.abs(curr.timestamp - currentTime) < Math.abs(prev.timestamp - currentTime) ? curr : prev;
+      }, null)
+    : null;
 
-  // Find current frame record for video playback mode
-  const currentFrameRecord = frameRecords.reduce<FrameRecord | null>((prev, curr) => {
-    if (!prev) return curr;
-    return Math.abs(curr.timestamp - currentTime) < Math.abs(prev.timestamp - currentTime) ? curr : prev;
-  }, null);
+  const rawActiveTracks = isLiveMode ? liveTracks : (currentFrameRecord?.active_tracks || []);
 
-  const activeTracks = isLiveMode ? liveTracks : (currentFrameRecord?.active_tracks || []);
+  // Only render track overlays when AI analysis is ready and valid frame records exist
+  const activeTracks = (isAnalyzing || (!isLiveMode && (!frameRecords || frameRecords.length === 0)))
+    ? []
+    : rawActiveTracks;
 
-  // Handle Play/Pause for Video Mode
   const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play();
-      setIsPlaying(true);
+    if (hasEnded) {
+      handleReplay();
+      return;
+    }
+    if (videoRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current.play();
+        setIsPlaying(true);
+      } else {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
     } else {
-      videoRef.current.pause();
-      setIsPlaying(false);
+      setIsPlaying(!isPlaying);
     }
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
     setCurrentTime(time);
+    if (hasEnded && time < duration) {
+      setHasEnded(false);
+    }
     if (videoRef.current) {
       videoRef.current.currentTime = time;
     }
   };
 
   const stepFrame = (forward = true) => {
-    if (!videoRef.current) return;
-    videoRef.current.pause();
     setIsPlaying(false);
-    const step = 0.05;
-    const newTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + (forward ? step : -step)));
-    videoRef.current.currentTime = newTime;
-    setCurrentTime(newTime);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      const step = 0.05;
+      const newTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + (forward ? step : -step)));
+      videoRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    } else {
+      const step = 0.1;
+      const newTime = Math.max(0, Math.min(duration, currentTime + (forward ? step : -step)));
+      setCurrentTime(newTime);
+    }
   };
 
   const getScenarioIdFromUrl = (url: string) => {
@@ -342,7 +393,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     return 'border_incursion';
   };
 
-  // Canvas Overlay Drawing
+  // Main Canvas HUD & Tracking Overlay Renderer
   const drawOverlay = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -353,47 +404,51 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     const width = canvas.width;
     const height = canvas.height;
 
+    // Clear background so underlying video or GIF is 100% visible
     ctx.clearRect(0, 0, width, height);
 
     const scenId = getScenarioIdFromUrl(videoUrl);
+    const isRealMedia = videoUrl && (
+      videoUrl.includes('.gif') || 
+      videoUrl.includes('.mp4') || 
+      videoUrl.includes('/static/') || 
+      videoUrl.startsWith('http') ||
+      videoUrl.includes('upload')
+    );
 
-    // If in Live Webcam Mode, draw video frame directly on canvas
+    // If live mode webcam active
     if (isLiveMode && liveVideoRef.current && liveVideoRef.current.readyState >= 2) {
       ctx.drawImage(liveVideoRef.current, 0, 0, width, height);
-    } else {
-      // Draw rich tactical scene (guarantees NO blank screen)
+    } else if (!isRealMedia) {
+      // Draw synthetic background ONLY if no real video / GIF file is loaded
       drawScenarioScene(ctx, width, height, scenId, currentTime, thermalMode);
     }
 
-    const scaleX = width / 960;
-    const scaleY = height / 540;
+    // Determine coordinate scale factors
+    const metaW = videoMetadata?.width || (currentFrameRecord ? 960 : 320);
+    const metaH = videoMetadata?.height || (currentFrameRecord ? 540 : 240);
+    const scaleX = width / metaW;
+    const scaleY = height / metaH;
 
-    // 1. Thermal Filter Overlay
+    // 1. Thermal Filter Effect Overlay
     if (thermalMode) {
-      ctx.fillStyle = 'rgba(120, 10, 90, 0.28)';
+      ctx.fillStyle = 'rgba(120, 10, 90, 0.25)';
       ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = 'rgba(255, 140, 0, 0.18)';
+      ctx.fillStyle = 'rgba(255, 140, 0, 0.15)';
       ctx.fillRect(0, 0, width, height);
     }
 
-    // 2. Tactical Radar Grid Overlay
+    // 2. Tactical Radar Grid & HUD Corners
     if (radarGrid) {
       ctx.strokeStyle = 'rgba(6, 182, 212, 0.08)';
       ctx.lineWidth = 1;
       for (let x = 0; x < width; x += 40) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
       }
       for (let y = 0; y < height; y += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
 
-      // HUD Corner Reticles
       const bracketSize = 16;
       ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
       ctx.lineWidth = 2;
@@ -403,7 +458,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       ctx.beginPath(); ctx.moveTo(width - 10 - bracketSize, height - 10); ctx.lineTo(width - 10, height - 10); ctx.lineTo(width - 10, height - 10 - bracketSize); ctx.stroke();
     }
 
-    // 3. Virtual Zones Rendering
+    // 3. Virtual Zones Overlay
     if (showZones) {
       zones.forEach(zone => {
         if (!zone.polygon || zone.polygon.length < 3) return;
@@ -431,11 +486,32 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       });
     }
 
-    // 4. Draw Active Entities (from activeTracks or Autonomous Scenario Engine)
+    // 4. Filter and Draw Active Target Track Bounding Boxes & Trajectories
     if (activeTracks && activeTracks.length > 0) {
-      // Draw Trajectories
+      // Filter valid tracks (excluding full-frame boundary boxes and top video text header overlays)
+      const validTracks = activeTracks.filter(track => {
+        if (!track.bbox || track.bbox.length < 4) return false;
+        const [bx1, by1, bx2, by2] = track.bbox;
+        const bw = bx2 - bx1;
+        const bh = by2 - by1;
+
+        // 1. Reject full-screen or giant canvas boundary boxes
+        if (bw >= 0.70 * metaW || bh >= 0.70 * metaH) return false;
+        if ((bw * bh) >= 0.40 * (metaW * metaH)) return false;
+
+        // 2. Reject top text banner area (e.g. "Frame No: - 1040" text banner)
+        if (by1 < 0.15 * metaH && bw > 0.30 * metaW && bh < 0.25 * metaH) return false;
+
+        // 3. Reject outer frame edge hugging lines
+        if (bx1 <= 5 && bx2 >= metaW - 5) return false;
+        if (by1 <= 5 && by2 >= metaH - 5) return false;
+
+        return true;
+      });
+
+      // Trajectory trails
       if (showTrajectories) {
-        activeTracks.forEach(track => {
+        validTracks.forEach(track => {
           if (!track.trajectory || track.trajectory.length < 2) return;
           const isSelected = track.track_id === selectedTrackId;
           const isOutlier = track.track_id === primaryOutlierId;
@@ -449,88 +525,107 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
 
           ctx.strokeStyle = isOutlier 
             ? 'rgba(239, 68, 68, 0.85)' 
-            : (isSelected ? 'rgba(6, 182, 212, 0.9)' : 'rgba(148, 163, 184, 0.45)');
+            : (isSelected ? 'rgba(6, 182, 212, 0.9)' : 'rgba(56, 189, 248, 0.4)');
           ctx.lineWidth = isSelected || isOutlier ? 3 : 1.5;
           ctx.stroke();
 
-          traj.slice(-6).forEach((pt, idx) => {
-            ctx.fillStyle = isOutlier ? '#ef4444' : (isSelected ? '#06b6d4' : '#94a3b8');
-            ctx.beginPath();
-            ctx.arc(pt[0] * scaleX, pt[1] * scaleY, (idx + 1) * 0.5, 0, Math.PI * 2);
-            ctx.fill();
-          });
+          if (isSelected || isOutlier) {
+            traj.slice(-6).forEach((pt, idx) => {
+              ctx.fillStyle = isOutlier ? '#ef4444' : '#06b6d4';
+              ctx.beginPath();
+              ctx.arc(pt[0] * scaleX, pt[1] * scaleY, (idx + 1) * 0.6, 0, Math.PI * 2);
+              ctx.fill();
+            });
+          }
         });
       }
 
-      // Draw Bounding Boxes & Telemetry HUD
+      // Bounding boxes & Target telemetry HUD
       if (showBBoxes) {
-        activeTracks.forEach(track => {
+        validTracks.forEach(track => {
           const [bx1, by1, bx2, by2] = track.bbox;
           const x1 = bx1 * scaleX;
           const y1 = by1 * scaleY;
-          const w = (bx2 - bx1) * scaleX;
-          const h = (by2 - by1) * scaleY;
+          const w = Math.max(16, (bx2 - bx1) * scaleX);
+          const h = Math.max(16, (by2 - by1) * scaleY);
 
           const isSelected = track.track_id === selectedTrackId;
           const isOutlier = track.track_id === primaryOutlierId;
 
-          let boxColor = '#06b6d4';
+          let boxColor = '#06b6d4'; // Cyan default
           if (isOutlier || (track.current_zone && (track.current_zone.includes('Restricted') || track.current_zone.includes('Outpost') || track.current_zone.includes('Depot')))) {
-            boxColor = '#ef4444';
+            boxColor = '#ef4444'; // Red for threat/incursion
           } else if (track.class_name === 'drone') {
-            boxColor = '#d946ef';
+            boxColor = '#d946ef'; // Purple
           } else if (track.class_name === 'bird') {
-            boxColor = '#f59e0b';
+            boxColor = '#f59e0b'; // Amber
           } else if (track.class_name === 'vehicle') {
-            boxColor = '#3b82f6';
+            boxColor = '#3b82f6'; // Blue
           } else if (track.class_name === 'object') {
-            boxColor = '#eab308';
+            boxColor = '#eab308'; // Yellow
           }
 
+          // Main Bounding Box (Thick glow for Outlier/Selected, subtle clean outline for secondary tracks)
           ctx.strokeStyle = boxColor;
           ctx.lineWidth = isSelected ? 3 : (isOutlier ? 2.5 : 1.5);
+          ctx.globalAlpha = isSelected || isOutlier ? 1.0 : 0.75;
           ctx.strokeRect(x1, y1, w, h);
+          ctx.globalAlpha = 1.0;
 
+          // Corner HUD Reticles
           const cLen = Math.min(8, w / 4, h / 4);
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = isSelected || isOutlier ? '#ffffff' : boxColor;
+          ctx.lineWidth = isSelected || isOutlier ? 2 : 1;
           ctx.beginPath(); ctx.moveTo(x1, y1 + cLen); ctx.lineTo(x1, y1); ctx.lineTo(x1 + cLen, y1); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(x1 + w - cLen, y1); ctx.lineTo(x1 + w, y1); ctx.lineTo(x1 + w, y1 + cLen); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(x1, y1 + h - cLen); ctx.lineTo(x1, y1 + h); ctx.lineTo(x1 + cLen, y1 + h); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(x1 + w - cLen, y1 + h); ctx.lineTo(x1 + w, y1 + h); ctx.lineTo(x1 + w, y1 + h - cLen); ctx.stroke();
 
-          const labelText = `${track.track_id} • ${track.class_name.toUpperCase()}`;
-          ctx.font = 'bold 11px monospace';
+          // Target Header Tag Pill (Sleek, uncluttered, semi-transparent)
+          const speedTxt = (track.speed_kmh && (isSelected || isOutlier)) ? ` • ${track.speed_kmh}km/h` : '';
+          const labelText = w < 60 && !isSelected && !isOutlier 
+            ? track.track_id 
+            : `${track.track_id} • ${track.class_name.toUpperCase()}${speedTxt}`;
+          
+          ctx.font = 'bold 10px monospace';
           const textWidth = ctx.measureText(labelText).width;
 
-          ctx.fillStyle = boxColor;
-          ctx.fillRect(x1, Math.max(0, y1 - 18), textWidth + 14, 18);
-          ctx.fillStyle = '#000000';
-          ctx.fillText(labelText, x1 + 6, Math.max(13, y1 - 4));
+          // Header Tag Background: Solid prominent pill for Outliers/Selected, sleek dark semi-transparent for normal tracks
+          if (isSelected || isOutlier) {
+            ctx.fillStyle = boxColor;
+            ctx.fillRect(x1, Math.max(0, y1 - 16), textWidth + 8, 16);
+            ctx.fillStyle = '#000000';
+            ctx.fillText(labelText, x1 + 4, Math.max(12, y1 - 4));
+          } else {
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(x1, Math.max(0, y1 - 15), textWidth + 8, 15);
+            ctx.strokeStyle = boxColor;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x1, Math.max(0, y1 - 15), textWidth + 8, 15);
+            ctx.fillStyle = boxColor;
+            ctx.fillText(labelText, x1 + 4, Math.max(11, y1 - 4));
+          }
 
+          // Dwell Badge (only for outlier/selected or dwell > 3s)
           const dwell = track.dwell_seconds || 0;
-          if (dwell > 1) {
-            ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.fillRect(x1, y1 + h + 2, 85, 14);
-            ctx.fillStyle = '#ffffff';
+          if ((isSelected || isOutlier || dwell > 3.0) && dwell > 0.5) {
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(x1, y1 + h + 2, 75, 13);
+            ctx.fillStyle = '#38bdf8';
             ctx.font = '9px monospace';
-            ctx.fillText(`DWELL: ${dwell.toFixed(1)}s`, x1 + 4, y1 + h + 12);
+            ctx.fillText(`DWELL: ${dwell.toFixed(1)}s`, x1 + 4, y1 + h + 11);
           }
         });
       }
-    } else if (!isLiveMode) {
-      // Autonomous Simulation Entities
-      const simEntities = getScenarioEntities(scenId, currentTime, width, height);
-      simEntities.forEach(ent => {
-        drawEntityVisual(ctx, ent, ent.track_id === selectedTrackId, thermalMode);
-      });
     }
-  }, [activeTracks, zones, selectedTrackId, primaryOutlierId, showZones, showTrajectories, showBBoxes, thermalMode, radarGrid, isLiveMode, videoUrl, currentTime]);
 
-  // Video playback time updates and 60FPS RAF animation loop
+  }, [activeTracks, zones, selectedTrackId, primaryOutlierId, showZones, showTrajectories, showBBoxes, thermalMode, radarGrid, isLiveMode, videoUrl, currentTime, videoMetadata, currentFrameRecord]);
+
+  // Video & Animation Loop
   useEffect(() => {
     let animId: number;
     let lastT = performance.now();
+
     const renderLoop = (timeNow: number) => {
       const dt = (timeNow - lastT) / 1000;
       lastT = timeNow;
@@ -538,29 +633,41 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
       if (!isLiveMode) {
         if (videoRef.current && !videoRef.current.paused && videoRef.current.duration) {
           setCurrentTime(videoRef.current.currentTime);
-        } else if (isPlaying) {
-          setCurrentTime(prev => (prev + dt * playbackRate) % 14);
+          setDuration(videoRef.current.duration);
+        } else if (isGif && isPlaying) {
+          const maxD = duration || 10;
+          setCurrentTime(prev => {
+            const next = prev + dt * playbackRate;
+            if (next >= maxD) {
+              handleVideoEnded();
+              return maxD;
+            }
+            return next;
+          });
         }
       }
+
       drawOverlay();
       animId = requestAnimationFrame(renderLoop);
     };
+
     animId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animId);
-  }, [drawOverlay, isLiveMode, isPlaying, playbackRate]);
-
+  }, [drawOverlay, isLiveMode, isPlaying, playbackRate, isGif, duration, handleVideoEnded]);
 
   // Canvas Click Track Selection
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const clickX = ((e.clientX - rect.left) / rect.width) * 960;
-    const clickY = ((e.clientY - rect.top) / rect.height) * 540;
+    const metaW = videoMetadata?.width || 960;
+    const metaH = videoMetadata?.height || 540;
+    const clickX = ((e.clientX - rect.left) / rect.width) * metaW;
+    const clickY = ((e.clientY - rect.top) / rect.height) * metaH;
 
     for (const track of activeTracks) {
       const [x1, y1, x2, y2] = track.bbox;
-      if (clickX >= x1 - 10 && clickX <= x2 + 10 && clickY >= y1 - 10 && clickY <= y2 + 10) {
+      if (clickX >= x1 - 15 && clickX <= x2 + 15 && clickY >= y1 - 15 && clickY <= y2 + 15) {
         onSelectTrack(track.track_id);
         return;
       }
@@ -569,7 +676,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
 
   return (
     <div className="relative flex flex-col bg-[#070d1e] rounded-xl border border-cyan-900/50 shadow-2xl overflow-hidden">
-      {/* Hidden Live Video Element for Webcam Stream */}
+      {/* Hidden Live Video Element for Webcam */}
       <video
         ref={liveVideoRef}
         playsInline
@@ -578,7 +685,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
         className="hidden"
       />
 
-      {/* Header Bar with Mode Toggles */}
+      {/* Header Bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 border-b border-slate-800 text-xs font-mono select-none">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-cyan-400 font-bold">
@@ -590,7 +697,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
             ) : (
               <>
                 <Eye className="w-4 h-4" />
-                <span>TACTICAL CCTV STREAM</span>
+                <span>TACTICAL SURVEILLANCE STREAM</span>
               </>
             )}
           </span>
@@ -598,15 +705,15 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
           <span className="text-slate-400">
             TRACKS ACTIVE: <strong className="text-emerald-400">{activeTracks.length}</strong>
           </span>
-          {isLiveMode && isLiveProcessing && (
-            <span className="flex items-center gap-1 text-[11px] text-cyan-300">
-              <RefreshCw className="w-3 h-3 animate-spin" />
-              <span>INFERENCE...</span>
+          {isAnalyzing && (
+            <span className="flex items-center gap-1.5 text-cyan-300 font-bold animate-pulse">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>YOLOv8 ANALYZING...</span>
             </span>
           )}
         </div>
 
-        {/* Tactical HUD Overlay Toggles */}
+        {/* HUD Toggles */}
         <div className="flex items-center gap-2">
           {isLiveMode && (
             <>
@@ -617,7 +724,6 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                     ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.6)] border border-red-400 animate-pulse'
                     : 'bg-slate-800 text-red-300 hover:bg-slate-700 border border-red-900/40'
                 }`}
-                title="Inject Simulated Infiltrator Target into live stream to test incursion & odd-one-out"
               >
                 <ShieldAlert className="w-3 h-3 text-red-400" />
                 <span>{simulateIntruder ? 'INTRUDER ACTIVE' : '+ SIMULATE INTRUDER'}</span>
@@ -630,17 +736,14 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                     ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)] border border-purple-400'
                     : 'bg-slate-800 text-purple-300 hover:bg-slate-700 border border-purple-900/40'
                 }`}
-                title="Inject Simulated Camouflaged Drone Incursion into live stream"
               >
                 <Sparkles className="w-3 h-3" />
                 <span>{simulateAerial ? 'DRONE SIMULATED' : '+ SIMULATE DRONE'}</span>
               </button>
 
-
               <button
                 onClick={handleResetLive}
                 className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] border border-slate-700"
-                title="Reset Live Tracker History"
               >
                 <RotateCcw className="w-3 h-3 text-cyan-400" />
                 <span>RESET TRACKS</span>
@@ -686,19 +789,28 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
         </div>
       </div>
 
-      {/* Main Video Viewport with Synchronized Canvas Overlay */}
+      {/* Main Viewport: Media Element (GIF or Video) + Canvas Overlay */}
       <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden cursor-crosshair group">
         {!isLiveMode ? (
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            playsInline
-            muted
-            loop
-            autoPlay
-            onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-            className={`w-full h-full object-contain transition-all ${thermalMode ? 'brightness-125 contrast-150 hue-rotate-180' : ''}`}
-          />
+          isGif ? (
+            <img
+              ref={imgRef}
+              src={videoUrl}
+              alt="CCTV Surveillance Stream"
+              className={`w-full h-full object-contain transition-all ${thermalMode ? 'brightness-125 contrast-150 hue-rotate-180' : ''}`}
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              playsInline
+              muted
+              autoPlay
+              onEnded={handleVideoEnded}
+              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+              className={`w-full h-full object-contain transition-all ${thermalMode ? 'brightness-125 contrast-150 hue-rotate-180' : ''}`}
+            />
+          )
         ) : webcamError ? (
           <div className="flex flex-col items-center justify-center p-6 text-center text-red-300 gap-2 font-mono">
             <VideoOff className="w-10 h-10 text-red-500" />
@@ -707,31 +819,60 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
           </div>
         ) : null}
 
+        {/* Bounding Box & Telemetry Canvas Overlay */}
         <canvas
           ref={canvasRef}
           width={960}
           height={540}
           onClick={handleCanvasClick}
-          className="absolute inset-0 w-full h-full object-contain pointer-events-auto"
+          className="absolute inset-0 w-full h-full object-contain pointer-events-auto z-10"
         />
 
-        {/* Live Tracking HUD Banner if Outlier present */}
+        {/* Non-blocking Subtle Analyzing Pill */}
+        {isAnalyzing && (
+          <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-950/85 border border-cyan-500/60 shadow-lg text-xs font-mono text-cyan-200 animate-pulse z-20">
+            <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+            <span>YOLOv8 ANALYZING...</span>
+          </div>
+        )}
+
+        {/* Primary Outlier Alert Banner */}
         {primaryOutlierId && (
-          <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-950/85 border border-red-500/60 shadow-[0_0_20px_rgba(239,68,68,0.4)] backdrop-blur-md text-xs font-mono text-red-200 animate-pulse">
+          <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-950/85 border border-red-500/60 shadow-[0_0_20px_rgba(239,68,68,0.4)] backdrop-blur-md text-xs font-mono text-red-200 animate-pulse z-20">
             <ShieldAlert className="w-4 h-4 text-red-400" />
             <span>BEHAVIOURAL OUTLIER: <strong className="text-white underline">{primaryOutlierId}</strong></span>
           </div>
         )}
+
+        {/* Playback Complete Glass Overlay & Manual Replay Button */}
+        {hasEnded && !isLiveMode && (
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center gap-3 z-30 font-mono text-center p-4">
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 text-xs shadow-lg">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>PLAYBACK COMPLETE • REVIEW DOSSIER BELOW</span>
+            </div>
+            <p className="text-slate-300 text-xs max-w-md leading-relaxed">
+              Video stream reached end of sequence. Scroll down to inspect the 5W Dossier, Baseline Comparison, and Outlier Intelligence.
+            </p>
+            <button
+              onClick={handleReplay}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all transform hover:scale-105"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>REPLAY VIDEO</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Video Transport & Timeline Scrubber (Only in Recorded Video Mode) */}
+      {/* Video Transport Scrubber (Only in Recorded Video Mode) */}
       {!isLiveMode && (
         <div className="px-4 py-2.5 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <input
               type="range"
               min={0}
-              max={duration || 1}
+              max={duration || 10}
               step={0.05}
               value={currentTime}
               onChange={handleSeek}
@@ -752,9 +893,9 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               <button
                 onClick={togglePlay}
                 className="p-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-md"
-                title={isPlaying ? 'Pause' : 'Play'}
+                title={hasEnded ? 'Replay Video' : (isPlaying ? 'Pause' : 'Play')}
               >
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+                {hasEnded ? <RotateCcw className="w-4 h-4" /> : (isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />)}
               </button>
 
               <button
@@ -769,8 +910,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                 onClick={() => {
                   if (videoRef.current) {
                     videoRef.current.currentTime = 0;
-                    setCurrentTime(0);
                   }
+                  setCurrentTime(0);
                 }}
                 className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
                 title="Restart Video"
@@ -778,6 +919,9 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                 <RotateCcw className="w-4 h-4" />
               </button>
 
+              <span className="text-slate-400 ml-2">
+                TIME: <strong className="text-cyan-300">{currentTime.toFixed(1)}s / {(duration || 10).toFixed(1)}s</strong>
+              </span>
               <span className="text-slate-400 ml-2">
                 FRAME: <strong className="text-cyan-300">{currentFrameRecord?.frame_index || 0}</strong>
               </span>

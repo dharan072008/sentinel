@@ -9,11 +9,12 @@ from typing import Dict, Any, List
 
 class ScenarioCatalog:
     """
-    Catalog of ready-to-analyze surveillance scenarios with preset environmental contexts.
+    Catalog of ready-to-analyze surveillance scenarios with preset environmental contexts,
+    plus dynamically discovered real CCTV footages.
     """
     @staticmethod
     def get_preset_scenarios(video_dir: str) -> List[Dict[str, Any]]:
-        return [
+        scenarios = [
             {
                 "id": "border_incursion",
                 "title": "Border Sector 4 — Infiltration & Baggage Drop",
@@ -80,3 +81,46 @@ class ScenarioCatalog:
                 "outlier_target": "P14"
             }
         ]
+
+        # Scan cctv footages and root videos directory dynamically
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        workspace_dir = os.path.dirname(backend_dir)
+        cctv_dir = os.path.join(workspace_dir, "cctv footages")
+        root_videos_dir = os.path.join(workspace_dir, "videos")
+
+        already_added_filenames = {s["filename"] for s in scenarios}
+        valid_exts = {".gif", ".mp4", ".avi", ".mov", ".mkv", ".webm"}
+
+        for scan_dir, url_prefix, prefix_tag in [
+            (cctv_dir, "/static/cctv_footages", "cctv_"),
+            (root_videos_dir, "/static/videos_root", "video_")
+        ]:
+            if os.path.exists(scan_dir):
+                for fname in sorted(os.listdir(scan_dir)):
+                    if fname in already_added_filenames:
+                        continue
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in valid_exts:
+                        already_added_filenames.add(fname)
+                        base_name = os.path.splitext(fname)[0]
+                        scenario_id = f"{prefix_tag}{base_name.lower().replace(' ', '_')}"
+                        
+                        threat = "CRITICAL_REVIEW" if any(w in base_name.lower() for w in ["burglary", "vandalism", "abuse", "arrest", "attack", "fight", "incursion"]) else "LOW_REVIEW"
+                        
+                        scenarios.append({
+                            "id": scenario_id,
+                            "title": f"Video Feed — {base_name.replace('_', ' ').title()}",
+                            "filename": fname,
+                            "video_url": f"{url_prefix}/{fname}",
+                            "region": "Sector_Surveillance",
+                            "season": "Winter",
+                            "time_of_day": "Night" if "night" in base_name.lower() or threat == "CRITICAL_REVIEW" else "Day",
+                            "habitat": "Surveillance Perimeter",
+                            "description": f"Surveillance video feed ({fname}). Analyzed by pretrained YOLO object detector & persistent tracker with behavioral baseline evaluation.",
+                            "expected_threat_level": threat,
+                            "outlier_target": "Auto-Detected",
+                            "is_cctv_footage": True
+                        })
+
+        return scenarios
+

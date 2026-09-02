@@ -111,15 +111,21 @@ class SentinelDetector:
 
         # --- MOTION CONTOURS FALLBACK ONLY IF NO DEEP LEARNING MODEL OR ZERO DETECTIONS ---
         if not self.model_loaded or len(detections) == 0:
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
             clean_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
             clean_mask = cv2.dilate(clean_mask, kernel, iterations=2)
             
             contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in contours:
                 area = cv2.contourArea(c)
-                if area > 350:
+                # Require significant motion area (>1200px) to prevent false ghost boxes on empty background noise
+                if area > 1200:
                     x, y, bw, bh = cv2.boundingRect(c)
+                    if bw < 25 or bh < 35:
+                        continue
+                    if bw >= 0.85 * w or bh >= 0.85 * h:
+                        continue
+
                     motion_box = [float(x), float(y), float(x + bw), float(y + bh)]
                     
                     has_overlap = False
@@ -136,18 +142,17 @@ class SentinelDetector:
                     
                     if not has_overlap:
                         aspect = bh / max(1.0, float(bw))
-                        if aspect > 0.95 and bh > 35:
+                        if aspect > 1.1 and bh > 45:
                             cname = "person"
-                            conf = 0.75
-                        elif aspect < 0.8 and bw > 60 and y > h * 0.3:
+                            conf = 0.78
+                        elif aspect < 0.8 and bw > 70 and y > h * 0.35:
                             cname = "vehicle"
-                            conf = 0.70
-                        elif y < h * 0.4 and area < 2500:
+                            conf = 0.75
+                        elif y < h * 0.35 and area < 3000:
                             cname = "drone" if aspect < 0.8 else "bird"
-                            conf = 0.68
+                            conf = 0.70
                         else:
-                            cname = "object"
-                            conf = 0.60
+                            continue # Skip ambiguous background noise
                         
                         detections.append({
                             "bbox": motion_box,
@@ -156,4 +161,4 @@ class SentinelDetector:
                             "raw_class_id": -2
                         })
 
-        return detections[:15]
+        return detections[:10]

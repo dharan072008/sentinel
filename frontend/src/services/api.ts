@@ -499,53 +499,21 @@ function generateFallbackAnalysisResponse(
   let spatial_events: SpatialEvent[];
 
   if (isCctv) {
-    // Tailored indoor/street CCTV surveillance tracks matching actual footage subjects
+    // Tailored indoor/street CCTV surveillance tracks focused strictly on the active subject
     tracks = [
-      {
-        track_id: 'P01',
-        class_name: 'person',
-        confidence: 0.94,
-        bbox: [220, 180, 320, 440],
-        center: [270, 310],
-        dimensions: [100, 260],
-        speed_px_s: 32,
-        speed_kmh: 3.4,
-        heading_deg: 90,
-        dwell_seconds: 18.5,
-        current_zone: 'Store Counter Sector',
-        trajectory: [[220, 310], [240, 310], [270, 310]],
-        hits: 30,
-        age: 30
-      },
-      {
-        track_id: 'P02',
-        class_name: 'person',
-        confidence: 0.92,
-        bbox: [380, 160, 480, 450],
-        center: [430, 305],
-        dimensions: [100, 290],
-        speed_px_s: 42,
-        speed_kmh: 4.1,
-        heading_deg: 180,
-        dwell_seconds: 12.0,
-        current_zone: 'Entry / Exit Passage',
-        trajectory: [[390, 305], [410, 305], [430, 305]],
-        hits: 20,
-        age: 20
-      },
       {
         track_id: 'P07',
         class_name: 'person',
         confidence: 0.96,
-        bbox: [520, 150, 630, 460],
-        center: [575, 305],
-        dimensions: [110, 310],
+        bbox: [480, 180, 580, 450],
+        center: [530, 315],
+        dimensions: [100, 270],
         speed_px_s: 18,
         speed_kmh: 1.8,
         heading_deg: 315,
         dwell_seconds: 45.0,
         current_zone: 'Entry / Exit Passage',
-        trajectory: [[450, 320], [510, 310], [575, 305]],
+        trajectory: [[440, 320], [480, 318], [530, 315]],
         hits: 80,
         age: 80
       }
@@ -558,62 +526,115 @@ function generateFallbackAnalysisResponse(
         class_name: 'person',
         zone_name: 'Entry / Exit Passage',
         timestamp: 4.2,
-        position: [575, 305],
+        position: [530, 315],
         severity: 'CRITICAL',
         description: 'Subject P07 flagged for anomalous altercation sequence in Entry / Exit Passage.'
       }
     ];
-  } else {
-    // Border outdoor surveillance scenario tracks
+  } else if (videoSource.includes('aerial') || videoSource.includes('drone')) {
+    // Aerial sector scenario - focused on target B04
     tracks = [
       {
-        track_id: 'P01',
-        class_name: 'person',
-        confidence: 0.94,
-        bbox: [100, 150, 160, 320],
-        center: [130, 235],
-        dimensions: [60, 170],
-        speed_px_s: 45,
-        speed_kmh: 4.2,
-        heading_deg: 45,
-        dwell_seconds: 24.5,
-        current_zone: 'Civilian Village Sector',
-        trajectory: [[100, 235], [110, 235], [120, 235], [130, 235]],
-        hits: 30,
-        age: 30
-      },
-      {
-        track_id: 'P02',
-        class_name: 'person',
-        confidence: 0.91,
-        bbox: [220, 160, 280, 330],
-        center: [250, 245],
-        dimensions: [60, 170],
-        speed_px_s: 38,
-        speed_kmh: 3.8,
+        track_id: 'B04',
+        class_name: 'bird',
+        confidence: 0.89,
+        bbox: [580, 70, 650, 130],
+        center: [615, 100],
+        dimensions: [70, 60],
+        speed_px_s: 140,
+        speed_kmh: 32.0,
         heading_deg: 90,
-        dwell_seconds: 20.0,
-        current_zone: 'Road Transit Corridor',
-        trajectory: [[220, 245], [230, 245], [240, 245], [250, 245]],
+        dwell_seconds: 15.0,
+        current_zone: 'Agricultural Buffer Zone',
+        trajectory: [[380, 100], [480, 100], [615, 100]],
         hits: 25,
         age: 25
-      },
+      }
+    ];
+
+    spatial_events = [
       {
-        track_id: 'V03',
-        class_name: 'vehicle',
-        confidence: 0.96,
-        bbox: [350, 380, 520, 480],
-        center: [435, 430],
-        dimensions: [170, 100],
-        speed_px_s: 120,
-        speed_kmh: 28.5,
+        event_type: 'ZONE_TRANSITION',
+        track_id: 'B04',
+        class_name: 'bird',
+        from_zone: 'Agricultural Buffer Zone',
+        to_zone: 'Restricted Border Fence Line',
+        timestamp: 8.5,
+        position: [615, 100],
+        severity: 'HIGH',
+        description: 'Aerial target B04 displaying motor heat (68.4°C) crossing airspace sector.'
+      }
+    ];
+  } else if (videoSource.includes('checkpoint') || videoSource.includes('night')) {
+    // Night checkpoint scenario - focused on intruder P09
+    tracks = [
+      {
+        track_id: 'P09',
+        class_name: 'person',
+        confidence: 0.94,
+        bbox: [460, 220, 540, 440],
+        center: [500, 330],
+        dimensions: [80, 220],
+        speed_px_s: 25,
+        speed_kmh: 2.4,
         heading_deg: 180,
-        dwell_seconds: 12.0,
-        current_zone: 'Road Transit Corridor',
-        trajectory: [[350, 430], [390, 430], [435, 430]],
-        hits: 15,
-        age: 15
-      },
+        dwell_seconds: 35.0,
+        current_zone: 'Restricted Border Fence Line',
+        trajectory: [[410, 330], [450, 330], [500, 330]],
+        hits: 40,
+        age: 40
+      }
+    ];
+
+    spatial_events = [
+      {
+        event_type: 'RESTRICTED_INCURSION',
+        track_id: 'P09',
+        class_name: 'person',
+        zone_name: 'Restricted Border Fence Line',
+        timestamp: 6.0,
+        position: [500, 330],
+        severity: 'CRITICAL',
+        description: 'Intruder P09 approaching fuel depot gate during night shift.'
+      }
+    ];
+  } else if (videoSource.includes('forest') || videoSource.includes('trail')) {
+    // Forest trail scenario - focused on intruder P14
+    tracks = [
+      {
+        track_id: 'P14',
+        class_name: 'person',
+        confidence: 0.95,
+        bbox: [480, 190, 560, 420],
+        center: [520, 305],
+        dimensions: [80, 230],
+        speed_px_s: 85,
+        speed_kmh: 8.2,
+        heading_deg: 270,
+        dwell_seconds: 14.0,
+        current_zone: 'Agricultural Buffer Zone',
+        trajectory: [[360, 305], [440, 305], [520, 305]],
+        hits: 35,
+        age: 35
+      }
+    ];
+
+    spatial_events = [
+      {
+        event_type: 'ZONE_TRANSITION',
+        track_id: 'P14',
+        class_name: 'person',
+        from_zone: 'Civilian Village Sector',
+        to_zone: 'Agricultural Buffer Zone',
+        timestamp: 4.8,
+        position: [520, 305],
+        severity: 'HIGH',
+        description: 'High velocity perimeter crossing detected on forest trail.'
+      }
+    ];
+  } else {
+    // Standard outdoor border incursion scenario
+    tracks = [
       {
         track_id: 'P07',
         class_name: 'person',
@@ -631,20 +652,20 @@ function generateFallbackAnalysisResponse(
         age: 90
       },
       {
-        track_id: 'B04',
-        class_name: 'bird',
-        confidence: 0.87,
-        bbox: [600, 80, 660, 140],
-        center: [630, 110],
-        dimensions: [60, 60],
-        speed_px_s: 150,
-        speed_kmh: 34.0,
-        heading_deg: 90,
-        dwell_seconds: 15.0,
-        current_zone: 'Agricultural Buffer Zone',
-        trajectory: [[400, 110], [500, 110], [630, 110]],
-        hits: 20,
-        age: 20
+        track_id: 'V03',
+        class_name: 'vehicle',
+        confidence: 0.96,
+        bbox: [350, 380, 520, 480],
+        center: [435, 430],
+        dimensions: [170, 100],
+        speed_px_s: 120,
+        speed_kmh: 28.5,
+        heading_deg: 180,
+        dwell_seconds: 12.0,
+        current_zone: 'Road Transit Corridor',
+        trajectory: [[350, 430], [390, 430], [435, 430]],
+        hits: 15,
+        age: 15
       }
     ];
 
